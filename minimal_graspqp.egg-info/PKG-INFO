@@ -21,6 +21,8 @@ Requires-Dist: ruff<0.12,>=0.11; extra == "dev"
 Provides-Extra: viz
 Requires-Dist: matplotlib<3.11,>=3.10; extra == "viz"
 Requires-Dist: plotly<7.0,>=6.0; extra == "viz"
+Provides-Extra: meshcat
+Requires-Dist: meshcat<0.4,>=0.3; extra == "meshcat"
 
 # GraspQP Reproduction
 
@@ -65,6 +67,12 @@ Install visualization dependencies:
 uv sync --extra viz
 ```
 
+Install MeshCat visualization support:
+
+```bash
+uv sync --extra meshcat
+```
+
 Install everything used in the current minimal scope:
 
 ```bash
@@ -82,6 +90,72 @@ uv run pytest
 
 # Run a future script without manual activation
 uv run python scripts/<script_name>.py
+```
+
+Minimal visualization:
+
+```bash
+uv sync --extra dev --extra viz
+uv run python scripts/visualize_shadow_hand_with_primitive.py --primitive sphere --show
+```
+
+Initialization visualization:
+
+```bash
+uv run python scripts/visualize_initialization.py --primitive sphere --batch-size 6 --show
+```
+
+The script writes an HTML file by default:
+
+```bash
+uv run python scripts/visualize_shadow_hand_with_primitive.py \
+  --primitive box \
+  --output outputs/shadow_box.html
+```
+
+Initialization preview can also be saved:
+
+```bash
+uv run python scripts/visualize_initialization.py \
+  --primitive cylinder \
+  --batch-size 8 \
+  --output outputs/init_cylinder.html
+```
+
+Run primitive optimization:
+
+```bash
+uv run python scripts/optimize_primitive.py --primitive sphere --batch-size 8 --num-steps 25
+```
+
+Run MALA*:
+
+```bash
+uv run python scripts/optimize_primitive.py --primitive sphere --batch-size 8 --num-steps 25 --mala-star
+```
+
+Visualize optimization result:
+
+```bash
+uv run python scripts/visualize_optimization_result.py \
+  --input outputs/primitive_optimization.pt \
+  --sample-index 0 \
+  --show
+```
+
+MeshCat visualization:
+
+```bash
+uv sync --extra meshcat
+uv run python scripts/visualize_shadow_hand_with_primitive_meshcat.py --primitive sphere
+```
+
+MeshCat optimization result:
+
+```bash
+uv run python scripts/visualize_optimization_result_meshcat.py \
+  --input outputs/primitive_optimization.pt \
+  --sample-index 0
 ```
 
 Notes:

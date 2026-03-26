@@ -11,7 +11,7 @@ class ForceClosureQP:
         self,
         friction: float = 0.2,
         num_edges: int = 4,
-        min_force: float = 1.0,
+        min_force: float = 0.0,
         max_force: float = 20.0,
         torque_weight: float = 5.0,
         svd_gain: float = 0.1,

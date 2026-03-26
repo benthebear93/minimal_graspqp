@@ -5,6 +5,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import pytorch_kinematics as pk
 import torch
 import trimesh as tm
@@ -81,6 +82,7 @@ class ShadowHandMetadata:
     joint_upper: torch.Tensor
     default_joint_state: torch.Tensor
     contact_candidate_points: torch.Tensor
+    contact_candidate_normals: torch.Tensor
     contact_candidate_links: list[str]
     penetration_points: dict[str, torch.Tensor]
 
@@ -114,21 +116,56 @@ def _parse_joint_limits(urdf_path: Path, joint_names: list[str]) -> tuple[torch.
     return torch.tensor(lower, dtype=torch.float32), torch.tensor(upper, dtype=torch.float32)
 
 
-def _load_contact_candidates(asset_dir: Path) -> tuple[torch.Tensor, list[str]]:
+def _farthest_point_indices(points: np.ndarray, k: int) -> np.ndarray:
+    if len(points) <= k:
+        return np.arange(len(points), dtype=np.int64)
+    selected = np.empty((k,), dtype=np.int64)
+    selected[0] = 0
+    min_dist_sq = np.sum((points - points[0]) ** 2, axis=1)
+    for idx in range(1, k):
+        selected[idx] = int(np.argmax(min_dist_sq))
+        dist_sq = np.sum((points - points[selected[idx]]) ** 2, axis=1)
+        min_dist_sq = np.minimum(min_dist_sq, dist_sq)
+    return selected
+
+
+def _sample_surface_candidates(mesh: tm.Trimesh, n_points: int) -> tuple[np.ndarray, np.ndarray]:
+    if n_points <= 0:
+        return np.zeros((0, 3), dtype=np.float32), np.zeros((0, 3), dtype=np.float32)
+    sampled_points, face_indices = tm.sample.sample_surface_even(mesh, max(1000, 50 * n_points))
+    selected = _farthest_point_indices(sampled_points, n_points)
+    points = sampled_points[selected]
+    normals = mesh.face_normals[face_indices[selected]]
+    return points.astype(np.float32), normals.astype(np.float32)
+
+
+def _load_contact_candidates(asset_dir: Path) -> tuple[torch.Tensor, torch.Tensor, list[str]]:
     contact_points_data = json.loads((asset_dir / "contact_points.json").read_text())
     candidates = []
+    normals = []
     links = []
     mesh_root = asset_dir / "meshes"
     mesh_cache: dict[Path, tm.Trimesh] = {}
     for link_name, entries in contact_points_data.items():
-        for relative_path, vertex_index in entries:
-            mesh_path = (mesh_root / relative_path).resolve()
-            if mesh_path not in mesh_cache:
-                mesh_cache[mesh_path] = tm.load(mesh_path, force="mesh", process=False)
-            vertex = mesh_cache[mesh_path].vertices[vertex_index]
-            candidates.append(vertex.tolist())
-            links.append(link_name)
-    return torch.tensor(candidates, dtype=torch.float32), links
+        for entry in entries:
+            if isinstance(entry, list) and len(entry) == 2 and isinstance(entry[0], str):
+                relative_path, num_points = entry
+                mesh_path = (mesh_root / relative_path).resolve()
+                if mesh_path not in mesh_cache:
+                    mesh_cache[mesh_path] = tm.load(mesh_path, force="mesh", process=False)
+                points, point_normals = _sample_surface_candidates(mesh_cache[mesh_path], int(num_points))
+                candidates.extend(points.tolist())
+                normals.extend(point_normals.tolist())
+                links.extend([link_name] * len(points))
+                continue
+            if isinstance(entry, list) and len(entry) == 3:
+                point = np.asarray(entry, dtype=np.float32)
+                candidates.append(point.tolist())
+                normals.append(np.zeros(3, dtype=np.float32).tolist())
+                links.append(link_name)
+                continue
+            raise ValueError(f"Unsupported contact candidate entry for {link_name}: {entry}")
+    return torch.tensor(candidates, dtype=torch.float32), torch.tensor(normals, dtype=torch.float32), links
 
 
 def _load_penetration_points(asset_dir: Path) -> dict[str, torch.Tensor]:
@@ -144,7 +181,7 @@ def load_shadow_hand_metadata(asset_dir: str | Path | None = None) -> ShadowHand
     if joint_names != DEFAULT_JOINT_ORDER:
         raise ValueError("Unexpected Shadow Hand joint order in URDF.")
     joint_lower, joint_upper = _parse_joint_limits(urdf_path, joint_names)
-    contact_candidate_points, contact_candidate_links = _load_contact_candidates(resolved_dir)
+    contact_candidate_points, contact_candidate_normals, contact_candidate_links = _load_contact_candidates(resolved_dir)
     return ShadowHandMetadata(
         asset_dir=resolved_dir,
         urdf_path=urdf_path,
@@ -155,6 +192,7 @@ def load_shadow_hand_metadata(asset_dir: str | Path | None = None) -> ShadowHand
         joint_upper=joint_upper,
         default_joint_state=DEFAULT_JOINT_STATE.clone(),
         contact_candidate_points=contact_candidate_points,
+        contact_candidate_normals=contact_candidate_normals,
         contact_candidate_links=contact_candidate_links,
         penetration_points=_load_penetration_points(resolved_dir),
     )
@@ -169,6 +207,7 @@ class ShadowHandModel:
         self.dtype = dtype
         self.chain = pk.build_chain_from_urdf(metadata.urdf_path.read_text()).to(dtype=dtype, device=self.device)
         self._candidate_points = metadata.contact_candidate_points.to(device=self.device, dtype=dtype)
+        self._candidate_normals = metadata.contact_candidate_normals.to(device=self.device, dtype=dtype)
         self._penetration_links = list(metadata.penetration_points.keys())
 
     @classmethod

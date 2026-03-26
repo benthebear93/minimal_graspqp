@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
+import time
 
 import torch
 
 from minimal_graspqp.hands import ShadowHandModel
 from minimal_graspqp.objects import Box, Cylinder, Sphere
 from minimal_graspqp.rotation import palm_down_rotation
-from minimal_graspqp.visualization import create_shadow_hand_primitive_figure
+from minimal_graspqp.visualization import publish_shadow_hand_primitive_meshcat
 
 
 def build_primitive(args):
@@ -22,7 +22,7 @@ def build_primitive(args):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Visualize the Shadow Hand against a primitive object.")
+    parser = argparse.ArgumentParser(description="Visualize the Shadow Hand against a primitive object in MeshCat.")
     parser.add_argument("--primitive", choices=["sphere", "cylinder", "box"], default="sphere")
     parser.add_argument("--radius", type=float, default=0.05)
     parser.add_argument("--half-height", type=float, default=0.08)
@@ -30,16 +30,14 @@ def main():
     parser.add_argument("--half-y", type=float, default=0.04)
     parser.add_argument("--half-z", type=float, default=0.04)
     parser.add_argument("--device", default="cpu")
-    parser.add_argument("--output", default="shadow_hand_primitive.html")
-    parser.add_argument("--show", action="store_true")
-    parser.add_argument("--contacts", nargs="*", type=int, default=None, help="Optional contact candidate indices to highlight.")
+    parser.add_argument("--contacts", nargs="*", type=int, default=None)
+    parser.add_argument("--duration", type=float, default=0.0, help="If >0, keep the process alive for that many seconds. Default 0 keeps it alive until Ctrl+C.")
     parser.add_argument("--palm-down", action="store_true", help="Flip the default wrist orientation by 180 degrees around the x-axis.")
     args = parser.parse_args()
 
     hand_model = ShadowHandModel.create(device=args.device)
     primitive = build_primitive(args)
     joint_values = hand_model.default_joint_state(batch_size=1)
-
     contact_indices = None
     if args.contacts:
         contact_indices = torch.tensor([args.contacts], dtype=torch.long, device=hand_model.device)
@@ -47,19 +45,20 @@ def main():
     if args.palm_down:
         wrist_rotation = palm_down_rotation(dtype=hand_model.dtype, device=hand_model.device).unsqueeze(0)
 
-    figure = create_shadow_hand_primitive_figure(
+    vis = publish_shadow_hand_primitive_meshcat(
         hand_model,
         primitive,
-        joint_values=joint_values,
+        joint_values,
         contact_indices=contact_indices,
         wrist_rotation=wrist_rotation,
     )
-    output_path = Path(args.output)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    figure.write_html(str(output_path))
-    print(f"Wrote visualization to {output_path}")
-    if args.show:
-        figure.show()
+    print("MeshCat visualization ready.")
+    print(f"Open this URL in your browser: {vis.url()}")
+    if args.duration > 0:
+        time.sleep(args.duration)
+        return
+    while True:
+        time.sleep(1.0)
 
 
 if __name__ == "__main__":

@@ -79,11 +79,16 @@ Requirements:
 - load predefined contact points and penetration points
 - expose joint limits, default joint state, and contact candidates
 - support batched hand pose parameters
+- interpret Shadow Hand `contact_points.json` consistently with the original repository:
+  - entries of the form `[mesh_path, n_points]` shall be treated as surface-sampling directives, not vertex indices
+  - contact candidates shall be sampled on the referenced contact mesh and reduced to `n_points` surface representatives
+  - candidate surface normals shall be available or derivable for later contact filtering and visualization
 
 Acceptance:
 
 - a Shadow Hand model can be instantiated on CPU and GPU
 - forward kinematics returns valid link poses and contact points
+- the loaded Shadow Hand contact candidate set is materially larger than one point per link for the provided asset pack
 
 ### FR-2. Primitive Object Support
 
@@ -244,6 +249,7 @@ Minimum requirement:
 Preferred next step:
 
 - convex-hull-inspired initialization similar to the original codebase
+- object-facing filtering or similarly constrained active-contact selection using the richer candidate set
 
 Acceptance:
 

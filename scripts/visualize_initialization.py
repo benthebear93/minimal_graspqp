@@ -6,6 +6,7 @@ from pathlib import Path
 from minimal_graspqp.hands import ShadowHandModel
 from minimal_graspqp.init import initialize_grasps_for_primitive
 from minimal_graspqp.objects import Box, Cylinder, Sphere
+from minimal_graspqp.rotation import palm_down_rotation
 from minimal_graspqp.visualization import create_initialization_figure
 
 
@@ -34,10 +35,14 @@ def main():
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--output", default="shadow_hand_initialization.html")
     parser.add_argument("--show", action="store_true")
+    parser.add_argument("--palm-down", action="store_true", help="Bias initialization around a palm-down wrist orientation.")
     args = parser.parse_args()
 
     hand_model = ShadowHandModel.create(device=args.device)
     primitive = build_primitive(args)
+    base_wrist_rotation = None
+    if args.palm_down:
+        base_wrist_rotation = palm_down_rotation(dtype=hand_model.dtype, device=hand_model.device)
     grasp_state = initialize_grasps_for_primitive(
         hand_model,
         primitive,
@@ -45,6 +50,7 @@ def main():
         distance_lower=args.distance_lower,
         distance_upper=args.distance_upper,
         num_contacts=args.num_contacts,
+        base_wrist_rotation=base_wrist_rotation,
     )
     figure = create_initialization_figure(hand_model, primitive, grasp_state, max_samples=args.batch_size)
     output_path = Path(args.output)
@@ -57,4 +63,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

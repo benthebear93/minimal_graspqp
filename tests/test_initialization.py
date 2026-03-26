@@ -3,6 +3,7 @@ import torch
 from minimal_graspqp.hands import ShadowHandModel
 from minimal_graspqp.init import initialize_grasps_for_primitive
 from minimal_graspqp.objects import Sphere
+from minimal_graspqp.rotation import palm_down_rotation
 
 
 def test_initialize_grasps_for_primitive_shapes_and_limits():
@@ -31,3 +32,33 @@ def test_initialize_grasps_for_primitive_wrist_distance():
     distances = grasp_state.wrist_translation.norm(dim=-1)
     assert torch.all(distances >= 0.10 - 1e-6)
     assert torch.all(distances <= 0.15 + 1e-6)
+
+
+def test_initialize_grasps_for_primitive_supports_palm_down_base_rotation():
+    hand_model = ShadowHandModel.create(device="cpu")
+    base_rotation = palm_down_rotation(dtype=hand_model.dtype, device=hand_model.device)
+    grasp_state = initialize_grasps_for_primitive(
+        hand_model,
+        Sphere(radius=0.05),
+        batch_size=4,
+        max_wrist_angle=0.0,
+        base_wrist_rotation=base_rotation,
+    )
+    assert grasp_state.wrist_rotation.shape == (4, 3, 3)
+    det = torch.linalg.det(grasp_state.wrist_rotation)
+    assert torch.allclose(det, torch.ones_like(det), atol=1e-5)
+
+
+def test_initialize_grasps_for_primitive_faces_object_when_unperturbed():
+    hand_model = ShadowHandModel.create(device="cpu")
+    grasp_state = initialize_grasps_for_primitive(
+        hand_model,
+        Sphere(radius=0.05),
+        batch_size=8,
+        max_wrist_angle=0.0,
+    )
+    wrist_to_center = -grasp_state.wrist_translation
+    wrist_to_center = wrist_to_center / wrist_to_center.norm(dim=-1, keepdim=True).clamp_min(1e-8)
+    forward_world = grasp_state.wrist_rotation[:, :, 2]
+    alignment = (forward_world * wrist_to_center).sum(dim=-1)
+    assert torch.all(alignment > 0.95)

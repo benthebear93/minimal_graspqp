@@ -31,6 +31,9 @@ viz = [
   "matplotlib>=3.10,<3.11",
   "plotly>=6.0,<7.0",
 ]
+meshcat = [
+  "meshcat>=0.3,<0.4",
+]
 
 [tool.uv]
 package = true

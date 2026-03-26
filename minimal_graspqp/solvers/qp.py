@@ -7,7 +7,7 @@ from qpth.qp import QPFunction
 class BoundedLeastSquaresQPSolver:
     """Solve batched bounded least-squares problems with qpth."""
 
-    def __init__(self, eps: float = 1e-4, max_iter: int = 20):
+    def __init__(self, eps: float = 5e-2, max_iter: int = 12):
         self.qp = QPFunction(verbose=False, eps=eps, maxIter=max_iter)
 
     def solve(

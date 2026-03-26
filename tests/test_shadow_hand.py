@@ -18,8 +18,10 @@ def test_load_shadow_hand_metadata():
     assert metadata.default_joint_state.shape == (24,)
     assert metadata.contact_candidate_points.ndim == 2
     assert metadata.contact_candidate_points.shape[-1] == 3
+    assert metadata.contact_candidate_normals.shape == metadata.contact_candidate_points.shape
     assert len(metadata.contact_candidate_links) == metadata.num_contact_candidates
     assert "robot0_ffdistal" in metadata.penetration_points
+    assert metadata.num_contact_candidates == 80
 
 
 def test_shadow_hand_forward_kinematics_and_contacts():
@@ -41,3 +43,13 @@ def test_shadow_hand_selected_contact_candidates():
     indices = torch.tensor([[0, 1, 2, 3]], dtype=torch.long)
     contacts = model.contact_candidates_world(joint_values, indices=indices)
     assert contacts.shape == (1, 4, 3)
+
+
+def test_shadow_hand_contact_candidates_are_not_one_point_per_link():
+    metadata = load_shadow_hand_metadata()
+    counts = {}
+    for link_name in metadata.contact_candidate_links:
+        counts[link_name] = counts.get(link_name, 0) + 1
+    assert counts["robot0_ffdistal"] == 8
+    assert counts["robot0_ffmiddle"] == 4
+    assert counts["robot0_thdistal"] == 8

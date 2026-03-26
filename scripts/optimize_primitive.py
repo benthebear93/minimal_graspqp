@@ -11,6 +11,7 @@ from minimal_graspqp.init import initialize_grasps_for_primitive
 from minimal_graspqp.metrics import ForceClosureQP
 from minimal_graspqp.objects import Box, Cylinder, Sphere
 from minimal_graspqp.optim import MalaConfig, MalaOptimizer
+from minimal_graspqp.rotation import palm_down_rotation
 
 
 def build_primitive(args):
@@ -76,13 +77,23 @@ def main():
     parser.add_argument("--annealing-period", type=int, default=30)
     parser.add_argument("--mu", type=float, default=0.98)
     parser.add_argument("--output", default="outputs/primitive_optimization.pt")
+    parser.add_argument("--palm-down", action="store_true", help="Bias initialization around a palm-down wrist orientation.")
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
     hand_model = ShadowHandModel.create(device=args.device)
     primitive = build_primitive(args)
-    initial_state = initialize_grasps_for_primitive(hand_model, primitive, batch_size=args.batch_size, num_contacts=args.num_contacts)
-    metric = ForceClosureQP(min_force=0.0, max_force=10.0)
+    base_wrist_rotation = None
+    if args.palm_down:
+        base_wrist_rotation = palm_down_rotation(dtype=hand_model.dtype, device=hand_model.device)
+    initial_state = initialize_grasps_for_primitive(
+        hand_model,
+        primitive,
+        batch_size=args.batch_size,
+        num_contacts=args.num_contacts,
+        base_wrist_rotation=base_wrist_rotation,
+    )
+    metric = ForceClosureQP(min_force=0.0, max_force=20.0)
     optimizer = MalaOptimizer(
         MalaConfig(
             num_steps=args.num_steps,
