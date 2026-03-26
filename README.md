@@ -67,12 +67,48 @@ uv sync --extra dev --extra viz
 uv run python scripts/visualize_shadow_hand_with_primitive.py --primitive sphere --show
 ```
 
+Initialization visualization:
+
+```bash
+uv run python scripts/visualize_initialization.py --primitive sphere --batch-size 6 --show
+```
+
 The script writes an HTML file by default:
 
 ```bash
 uv run python scripts/visualize_shadow_hand_with_primitive.py \
   --primitive box \
   --output outputs/shadow_box.html
+```
+
+Initialization preview can also be saved:
+
+```bash
+uv run python scripts/visualize_initialization.py \
+  --primitive cylinder \
+  --batch-size 8 \
+  --output outputs/init_cylinder.html
+```
+
+Run primitive optimization:
+
+```bash
+uv run python scripts/optimize_primitive.py --primitive sphere --batch-size 8 --num-steps 25
+```
+
+Run MALA*:
+
+```bash
+uv run python scripts/optimize_primitive.py --primitive sphere --batch-size 8 --num-steps 25 --mala-star
+```
+
+Visualize optimization result:
+
+```bash
+uv run python scripts/visualize_optimization_result.py \
+  --input outputs/primitive_optimization.pt \
+  --sample-index 0 \
+  --show
 ```
 
 Notes:

@@ -169,6 +169,7 @@ class ShadowHandModel:
         self.dtype = dtype
         self.chain = pk.build_chain_from_urdf(metadata.urdf_path.read_text()).to(dtype=dtype, device=self.device)
         self._candidate_points = metadata.contact_candidate_points.to(device=self.device, dtype=dtype)
+        self._penetration_links = list(metadata.penetration_points.keys())
 
     @classmethod
     def create(cls, asset_dir: str | Path | None = None, device: str | torch.device = "cpu") -> "ShadowHandModel":
@@ -187,7 +188,25 @@ class ShadowHandModel:
         fk_result = self.chain.forward_kinematics(joint_values)
         return {name: transform.get_matrix() for name, transform in fk_result.items()}
 
-    def contact_candidates_world(self, joint_values: torch.Tensor, indices: torch.Tensor | None = None) -> torch.Tensor:
+    def apply_wrist_pose(
+        self,
+        points: torch.Tensor,
+        wrist_translation: torch.Tensor | None = None,
+        wrist_rotation: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        if wrist_rotation is None:
+            wrist_rotation = torch.eye(3, device=points.device, dtype=points.dtype).unsqueeze(0).expand(points.shape[0], -1, -1)
+        if wrist_translation is None:
+            wrist_translation = torch.zeros((points.shape[0], 3), device=points.device, dtype=points.dtype)
+        return points @ wrist_rotation.transpose(-1, -2) + wrist_translation.unsqueeze(1)
+
+    def contact_candidates_world(
+        self,
+        joint_values: torch.Tensor,
+        indices: torch.Tensor | None = None,
+        wrist_translation: torch.Tensor | None = None,
+        wrist_rotation: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         transforms = self.forward_kinematics(joint_values)
         batch_size = joint_values.shape[0]
         if indices is None:
@@ -205,7 +224,7 @@ class ShadowHandModel:
                 point = local_points[:, candidate_id]
                 hom = torch.cat([point, torch.ones(batch_size, 1, device=self.device, dtype=self.dtype)], dim=-1)
                 world_points.append((transform @ hom.unsqueeze(-1)).squeeze(-1)[..., :3])
-            return torch.stack(world_points, dim=1)
+            return self.apply_wrist_pose(torch.stack(world_points, dim=1), wrist_translation=wrist_translation, wrist_rotation=wrist_rotation)
 
         world_points = []
         for batch_id in range(batch_size):
@@ -216,4 +235,33 @@ class ShadowHandModel:
                 hom = torch.cat([point, torch.ones(1, device=self.device, dtype=self.dtype)], dim=0)
                 batch_points.append((transform @ hom.unsqueeze(-1)).squeeze(-1)[..., :3])
             world_points.append(torch.stack(batch_points, dim=0))
-        return torch.stack(world_points, dim=0)
+        return self.apply_wrist_pose(torch.stack(world_points, dim=0), wrist_translation=wrist_translation, wrist_rotation=wrist_rotation)
+
+    def penetration_spheres_world(
+        self,
+        joint_values: torch.Tensor,
+        wrist_translation: torch.Tensor | None = None,
+        wrist_rotation: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, list[str]]:
+        transforms = self.forward_kinematics(joint_values)
+        batch_size = joint_values.shape[0]
+        centers = []
+        radii = []
+        link_names = []
+        for link_name in self._penetration_links:
+            link_points = self.metadata.penetration_points[link_name].to(device=self.device, dtype=self.dtype)
+            local_centers = link_points[:, :3]
+            local_radii = link_points[:, 3]
+            transform = transforms[link_name]
+            hom = torch.cat(
+                [local_centers.unsqueeze(0).expand(batch_size, -1, -1), torch.ones((batch_size, local_centers.shape[0], 1), device=self.device, dtype=self.dtype)],
+                dim=-1,
+            )
+            world_centers = (transform.unsqueeze(1) @ hom.unsqueeze(-1)).squeeze(-1)[..., :3]
+            centers.append(world_centers)
+            radii.append(local_radii.unsqueeze(0).expand(batch_size, -1))
+            link_names.extend([link_name] * local_centers.shape[0])
+        centers_cat = torch.cat(centers, dim=1)
+        radii_cat = torch.cat(radii, dim=1)
+        centers_cat = self.apply_wrist_pose(centers_cat, wrist_translation=wrist_translation, wrist_rotation=wrist_rotation)
+        return centers_cat, radii_cat, link_names

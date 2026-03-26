@@ -211,11 +211,27 @@ Requirements:
 - optionally resample contact indices
 - accept or reject proposals based on energy change
 - reset poor-performing samples based on batch energy statistics
+- use gradient normalization or equivalent step stabilization to avoid optimizer collapse
+- use annealed schedules for both step size and acceptance temperature
+- support optimizer-state reset when grasp samples are reinitialized
 
 Acceptance:
 
 - optimization reduces total energy on primitive-object test cases
 - MALA* can be enabled or disabled by configuration
+
+### FR-8.1. MALA / MALA* Implementation Constraints
+
+To stay consistent with the original GraspQP implementation, the reduced optimizer shall follow these constraints:
+
+- gradient-based updates shall use an EMA or RMSProp-style normalization scheme
+- acceptance temperature shall decay over time instead of remaining fixed
+- step size shall decay over time instead of remaining fixed
+- MALA* temperature scaling shall depend on the current energy distribution across the batch
+- MALA* resetting shall use a distribution-based criterion such as z-score thresholding over current batch energies
+- when a sample is reset, the corresponding optimizer internal state shall also be reset
+
+These constraints are required because a naive gradient-descent or fixed-temperature implementation may satisfy the high-level interface but fail to reproduce the intended optimizer behavior.
 
 ### FR-9. Initialization
 
