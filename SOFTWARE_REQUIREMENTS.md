@@ -35,6 +35,7 @@ The system shall include:
 - offline result export
 - lightweight visualization or logging for debugging
 - unit tests for the core mathematical components
+- a local visualization path for manual inspection of hand-object configurations
 
 ## 4. Out-of-Scope Features
 
@@ -253,6 +254,27 @@ Recommended formats:
 - `.npz`
 - `.json` for metadata only
 
+### FR-11. Minimal Visualization for Manual Inspection
+
+The system shall provide a lightweight local visualization capability so a user can visually inspect the current Shadow Hand pose relative to a primitive object.
+
+Requirements:
+
+- render at least one primitive object together with the Shadow Hand
+- display the current hand pose produced by initialization or optimization
+- support visualization of contact candidate points or selected active contacts
+- run without Isaac Lab or any simulator dependency
+
+Preferred implementation:
+
+- a simple Plotly-based local script
+
+Acceptance:
+
+- a user can run one script locally and visually inspect the hand-object configuration
+- the visualization works for at least sphere, cylinder, and box primitives
+- the visualization can be used before full optimization is implemented
+
 ## 7. Non-Functional Requirements
 
 ### NFR-1. Simplicity First
@@ -405,7 +427,7 @@ Instead, validation shall be limited to:
 - optimization behavior
 - contact geometry consistency
 - force-closure energy behavior
-- qualitative visualization if available
+- qualitative visualization through the local manual-inspection script
 
 ## 12. Deliverables
 
@@ -419,6 +441,7 @@ The first usable milestone of `minimal_graspqp` shall include:
 6. A script that runs batch optimization on a primitive object.
 7. Basic tests for math and optimization.
 8. A README documenting installation and usage.
+9. A local visualization script for manual inspection of primitive-object scenes.
 
 ## 13. Recommended Development Order
 

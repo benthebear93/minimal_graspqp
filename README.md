@@ -60,6 +60,21 @@ uv run pytest
 uv run python scripts/<script_name>.py
 ```
 
+Minimal visualization:
+
+```bash
+uv sync --extra dev --extra viz
+uv run python scripts/visualize_shadow_hand_with_primitive.py --primitive sphere --show
+```
+
+The script writes an HTML file by default:
+
+```bash
+uv run python scripts/visualize_shadow_hand_with_primitive.py \
+  --primitive box \
+  --output outputs/shadow_box.html
+```
+
 Notes:
 
 - The dependency set follows the reduced scope in [SOFTWARE_REQUIREMENTS.md](/home/haegu/minimal_graspqp/SOFTWARE_REQUIREMENTS.md).
