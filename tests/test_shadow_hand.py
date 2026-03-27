@@ -4,6 +4,7 @@ import torch
 
 from minimal_graspqp.assets import resolve_shadow_hand_asset_dir
 from minimal_graspqp.hands import ShadowHandModel, load_shadow_hand_metadata
+from minimal_graspqp.hands.shadow_hand import FINGERTIP_LINK_NAMES
 
 
 def test_resolve_shadow_hand_asset_dir():
@@ -71,3 +72,9 @@ def test_shadow_hand_cal_distance_uses_collision_meshes():
     distance = model.cal_distance(query, joint_values)
     assert distance[0, 0].item() > 0.0
     assert distance[0, 1].item() < 0.0
+
+
+def test_shadow_hand_fingertips_only_filters_contact_candidates():
+    model = ShadowHandModel.create(device="cpu", fingertips_only=True)
+    assert set(model.metadata.contact_candidate_links).issubset(set(FINGERTIP_LINK_NAMES))
+    assert model.metadata.num_contact_candidates < load_shadow_hand_metadata().num_contact_candidates

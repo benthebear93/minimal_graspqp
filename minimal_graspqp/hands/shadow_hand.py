@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
+from dataclasses import replace
 from pathlib import Path
 
 import importlib.util
@@ -74,6 +75,14 @@ DEFAULT_JOINT_STATE = torch.tensor(
     ],
     dtype=torch.float32,
 )
+
+FINGERTIP_LINK_NAMES = [
+    "robot0_ffdistal",
+    "robot0_mfdistal",
+    "robot0_rfdistal",
+    "robot0_lfdistal",
+    "robot0_thdistal",
+]
 
 
 @dataclass
@@ -289,6 +298,27 @@ def load_shadow_hand_metadata(asset_dir: str | Path | None = None) -> ShadowHand
     )
 
 
+def filter_contact_candidates(
+    metadata: ShadowHandMetadata,
+    allowed_links: list[str] | tuple[str, ...],
+) -> ShadowHandMetadata:
+    allowed = set(allowed_links)
+    mask = torch.tensor(
+        [link_name in allowed for link_name in metadata.contact_candidate_links],
+        dtype=torch.bool,
+    )
+    return replace(
+        metadata,
+        contact_candidate_points=metadata.contact_candidate_points[mask],
+        contact_candidate_normals=metadata.contact_candidate_normals[mask],
+        contact_candidate_links=[
+            link_name
+            for link_name in metadata.contact_candidate_links
+            if link_name in allowed
+        ],
+    )
+
+
 class ShadowHandModel:
     """Minimal Shadow Hand wrapper for FK and contact candidate transforms."""
 
@@ -314,8 +344,16 @@ class ShadowHandModel:
             self._collision_meshes[link_name] = mesh_data
 
     @classmethod
-    def create(cls, asset_dir: str | Path | None = None, device: str | torch.device = "cpu") -> "ShadowHandModel":
-        return cls(load_shadow_hand_metadata(asset_dir=asset_dir), device=device)
+    def create(
+        cls,
+        asset_dir: str | Path | None = None,
+        device: str | torch.device = "cpu",
+        fingertips_only: bool = False,
+    ) -> "ShadowHandModel":
+        metadata = load_shadow_hand_metadata(asset_dir=asset_dir)
+        if fingertips_only:
+            metadata = filter_contact_candidates(metadata, FINGERTIP_LINK_NAMES)
+        return cls(metadata, device=device)
 
     def default_joint_state(self, batch_size: int = 1) -> torch.Tensor:
         state = self.metadata.default_joint_state.to(device=self.device, dtype=self.dtype)

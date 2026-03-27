@@ -104,10 +104,11 @@ def main():
     parser.add_argument("--mu", type=float, default=0.98)
     parser.add_argument("--output", default="outputs/primitive_optimization.pt")
     parser.add_argument("--palm-down", action="store_true", help="Bias initialization around a palm-down wrist orientation.")
+    parser.add_argument("--fingertips-only", action="store_true", help="Restrict contact candidates to fingertip distal links only.")
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
-    hand_model = ShadowHandModel.create(device=args.device)
+    hand_model = ShadowHandModel.create(device=args.device, fingertips_only=args.fingertips_only)
     primitive = build_object(args)
     base_wrist_rotation = None
     if args.palm_down:
@@ -143,6 +144,7 @@ def main():
 
     output = {
         "primitive": object_metadata(args, primitive),
+        "hand": {"fingertips_only": bool(args.fingertips_only)},
         "initial_state": serialize_state(initial_state),
         "final_state": serialize_state(final_state),
         "initial_energy": initial_losses["E_total"].detach().cpu(),

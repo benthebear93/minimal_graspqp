@@ -26,9 +26,10 @@ def main():
     parser.add_argument("--output", default="outputs/shadow_hand_mesh_init.html")
     parser.add_argument("--show", action="store_true")
     parser.add_argument("--palm-down", action="store_true")
+    parser.add_argument("--fingertips-only", action="store_true", help="Restrict contact candidates to fingertip distal links only.")
     args = parser.parse_args()
 
-    hand_model = ShadowHandModel.create(device=args.device)
+    hand_model = ShadowHandModel.create(device=args.device, fingertips_only=args.fingertips_only)
     mesh_object = MeshObject(Path(args.mesh_path), scale=args.mesh_scale)
     base_rotation = None
     if args.palm_down:

@@ -50,7 +50,8 @@ def main():
     primitive = build_primitive_from_metadata(payload["primitive"])
     initial_state = _to_state(payload, "initial_state")
     final_state = _to_state(payload, "final_state")
-    hand_model = ShadowHandModel.create(device=args.device)
+    fingertips_only = bool(payload.get("hand", {}).get("fingertips_only", False))
+    hand_model = ShadowHandModel.create(device=args.device, fingertips_only=fingertips_only)
 
     figure = create_optimization_result_figure(
         hand_model,

@@ -48,9 +48,10 @@ def main():
     parser.add_argument("--spacing", type=float, default=0.25, help="Scene spacing between samples when batch-size > 1.")
     parser.add_argument("--duration", type=float, default=0.0, help="If >0, keep the process alive for that many seconds. Default 0 keeps it alive until Ctrl+C.")
     parser.add_argument("--palm-down", action="store_true")
+    parser.add_argument("--fingertips-only", action="store_true", help="Restrict contact candidates to fingertip distal links only.")
     args = parser.parse_args()
 
-    hand_model = ShadowHandModel.create(device=args.device)
+    hand_model = ShadowHandModel.create(device=args.device, fingertips_only=args.fingertips_only)
     obj = build_object(args)
     base_wrist_rotation = None
     if args.palm_down:

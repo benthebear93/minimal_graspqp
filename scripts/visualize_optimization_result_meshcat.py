@@ -45,7 +45,8 @@ def main():
 
     payload = torch.load(args.input, map_location="cpu", weights_only=False)
     primitive = build_primitive_from_metadata(payload["primitive"])
-    hand_model = ShadowHandModel.create(device=args.device)
+    fingertips_only = bool(payload.get("hand", {}).get("fingertips_only", False))
+    hand_model = ShadowHandModel.create(device=args.device, fingertips_only=fingertips_only)
     initial_state = _to_state(payload, "initial_state")
     final_state = _to_state(payload, "final_state")
     vis = publish_optimization_result_meshcat(hand_model, primitive, initial_state, final_state, sample_index=args.sample_index)

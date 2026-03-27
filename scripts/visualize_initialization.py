@@ -36,9 +36,10 @@ def main():
     parser.add_argument("--output", default="shadow_hand_initialization.html")
     parser.add_argument("--show", action="store_true")
     parser.add_argument("--palm-down", action="store_true", help="Bias initialization around a palm-down wrist orientation.")
+    parser.add_argument("--fingertips-only", action="store_true", help="Restrict contact candidates to fingertip distal links only.")
     args = parser.parse_args()
 
-    hand_model = ShadowHandModel.create(device=args.device)
+    hand_model = ShadowHandModel.create(device=args.device, fingertips_only=args.fingertips_only)
     primitive = build_primitive(args)
     base_wrist_rotation = None
     if args.palm_down:
