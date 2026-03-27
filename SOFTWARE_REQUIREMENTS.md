@@ -14,11 +14,12 @@ The reduced scope is constrained by the following project decisions:
 
 1. Only **Shadow Hand** shall be supported.
 2. No **physics-engine-based validation** shall be included.
-3. Initial testing shall be limited to **simple analytic or mesh primitives**, such as:
+3. Initial testing shall be limited to **simple analytic objects and a small local mesh set**, such as:
    - sphere
    - cylinder
    - cube / box
    - square-like box variants
+   - a few original-style `coacd/remeshed.obj` mesh objects
 
 ## 3. In-Scope Features
 
@@ -117,9 +118,9 @@ Acceptance:
 
 ### FR-2.1. Optional Mesh / Convex-Hull Object Support
 
-The system may additionally support a small number of real mesh objects for
-initialization and visualization experiments, without expanding to the full
-original dataset pipeline.
+The system shall additionally support a small number of real mesh objects for
+initialization, optimization, and visualization experiments, without expanding
+to the full original dataset pipeline.
 
 Requirements:
 
@@ -128,13 +129,16 @@ Requirements:
   layout such as ``<data_root>/<object_code>/coacd/remeshed.obj``
 - initialization for mesh objects should prefer convex-hull-based surface
   sampling similar to the original repository
+- full differentiable mesh signed distance and surface normal queries should use
+  the full object mesh when `TorchSDF` is available
 - if full differentiable mesh SDF is unavailable, a convex-hull approximation is
-  acceptable for initialization and smoke testing
+  acceptable only as a fallback for smoke testing
 
 Acceptance:
 
 - at least one local mesh object can be loaded and visualized with the Shadow Hand
 - convex-hull-based initialization produces valid grasp batches for that object
+- a mesh-object optimization run can complete end-to-end in the local repo
 
 ### FR-3. Contact Geometry Evaluation
 
@@ -145,6 +149,8 @@ Requirements:
 - compute signed distances from hand contact points to object surface
 - compute outward surface normals at or near the closest point
 - support batched evaluation
+- for mesh objects, use full-mesh signed distance / normal queries rather than
+  convex-hull queries whenever the mesh backend supports it
 
 Acceptance:
 
@@ -187,6 +193,9 @@ Acceptance:
 
 - each term can be computed independently
 - total energy is differentiable with respect to the grasp parameters
+- `E_pen` should match the original GraspQP structure more closely by querying
+  object surface samples against a hand collision model, rather than relying
+  only on a sparse hand-sphere approximation
 
 ### FR-6. Force-Closure Metric
 
@@ -198,6 +207,9 @@ Requirements:
 - support friction-cone approximation with a four-sided pyramid
 - solve for bounded coefficients using a QP
 - include the singular-value-based scaling term used to discourage rank-deficient wrench matrices
+- prefer the original GraspQP overall friction-cone span formulation over a
+  simpler `±I` basis surrogate
+- support warm-starting the bounded coefficient solve across optimizer steps
 
 Acceptance:
 
@@ -214,6 +226,8 @@ Requirements:
 - solve bounded least-squares / QP problems in batch form
 - operate with PyTorch tensors
 - support autodiff through the solver output
+- expose the original `qpth` tolerance / iteration behavior closely enough to
+  compare with the reference implementation
 
 Implementation note:
 
@@ -245,6 +259,8 @@ Acceptance:
 
 - optimization reduces total energy on primitive-object test cases
 - MALA* can be enabled or disabled by configuration
+- contact-index switching probability should be configurable, since the original
+  implementation relies on nonzero contact switching during optimization
 
 ### FR-8.1. MALA / MALA* Implementation Constraints
 

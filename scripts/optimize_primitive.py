@@ -9,12 +9,18 @@ from minimal_graspqp.energy import compute_grasp_energy
 from minimal_graspqp.hands import ShadowHandModel
 from minimal_graspqp.init import initialize_grasps_for_primitive
 from minimal_graspqp.metrics import ForceClosureQP
-from minimal_graspqp.objects import Box, Cylinder, Sphere
+from minimal_graspqp.objects import Box, Cylinder, MeshObject, Sphere
 from minimal_graspqp.optim import MalaConfig, MalaOptimizer
 from minimal_graspqp.rotation import palm_down_rotation
 
 
-def build_primitive(args):
+def build_object(args):
+    if args.mesh_path:
+        return MeshObject(Path(args.mesh_path))
+    if args.object_code:
+        if not args.object_root:
+            raise ValueError("--object-root is required when --object-code is used.")
+        return MeshObject.from_code(args.object_root, args.object_code)
     if args.primitive == "sphere":
         return Sphere(radius=args.radius)
     if args.primitive == "cylinder":
@@ -33,7 +39,21 @@ def serialize_state(state):
     }
 
 
-def primitive_metadata(args):
+def object_metadata(args, obj):
+    if isinstance(obj, MeshObject):
+        if args.object_code:
+            return {
+                "type": "mesh",
+                "object_code": args.object_code,
+                "object_root": str(Path(args.object_root).resolve()) if args.object_root else None,
+                "mesh_path": str(obj.mesh_path),
+                "center": list(obj.center),
+            }
+        return {
+            "type": "mesh",
+            "mesh_path": str(obj.mesh_path),
+            "center": list(obj.center),
+        }
     if args.primitive == "sphere":
         return {"type": "sphere", "radius": args.radius, "center": [0.0, 0.0, 0.0]}
     if args.primitive == "cylinder":
@@ -53,8 +73,11 @@ def primitive_metadata(args):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run minimal GraspQP optimization on a primitive object.")
+    parser = argparse.ArgumentParser(description="Run minimal GraspQP optimization on a primitive or mesh object.")
     parser.add_argument("--primitive", choices=["sphere", "cylinder", "box"], default="sphere")
+    parser.add_argument("--mesh-path", default=None, help="Optional direct path to a mesh object file.")
+    parser.add_argument("--object-root", default=None, help="Optional root directory for object-code lookup.")
+    parser.add_argument("--object-code", default=None, help="Optional object code resolved as <object-root>/<object-code>/coacd/*.obj.")
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--num-steps", type=int, default=200)
     parser.add_argument("--num-contacts", type=int, default=4)
@@ -82,7 +105,7 @@ def main():
 
     torch.manual_seed(args.seed)
     hand_model = ShadowHandModel.create(device=args.device)
-    primitive = build_primitive(args)
+    primitive = build_object(args)
     base_wrist_rotation = None
     if args.palm_down:
         base_wrist_rotation = palm_down_rotation(dtype=hand_model.dtype, device=hand_model.device)
@@ -116,7 +139,7 @@ def main():
     final_losses = compute_grasp_energy(hand_model, primitive, final_state, metric)
 
     output = {
-        "primitive": primitive_metadata(args),
+        "primitive": object_metadata(args, primitive),
         "initial_state": serialize_state(initial_state),
         "final_state": serialize_state(final_state),
         "initial_energy": initial_losses["E_total"].detach().cpu(),

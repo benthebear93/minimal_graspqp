@@ -6,12 +6,12 @@ Current project constraints:
 
 - Shadow Hand only
 - no physics-engine validation
-- primitive objects only: `sphere`, `cylinder`, `box`
+- no Isaac / simulator evaluation
 
 The current codebase implements a minimal end-to-end pipeline:
 
 - Shadow Hand loading and forward kinematics
-- primitive-object signed distance and surface normals
+- primitive and mesh-object signed distance and surface normals
 - contact candidate loading from the original Shadow Hand asset pack
 - friction-cone wrench construction
 - differentiable force-closure QP
@@ -34,7 +34,7 @@ Create the environment and install everything used by the current repo:
 ```bash
 uv venv --python 3.11
 source .venv/bin/activate
-uv sync --extra dev --extra viz --extra meshcat
+uv sync --extra dev --extra viz --extra meshcat --extra mesh
 ```
 
 Useful commands:
@@ -53,9 +53,9 @@ uv run sphinx-build -b html docs docs/_build/html
 ├── minimal_graspqp/
 │   ├── energy/           # grasp energy terms
 │   ├── hands/            # Shadow Hand model and FK
-│   ├── init/             # primitive-based grasp initialization
+│   ├── init/             # primitive / mesh-based grasp initialization
 │   ├── metrics/          # wrench and force-closure utilities
-│   ├── objects/          # sphere, cylinder, box primitives
+│   ├── objects/          # sphere, cylinder, box, mesh objects
 │   ├── optim/            # MALA / MALA*
 │   ├── solvers/          # QP wrappers
 │   ├── state.py          # grasp-state container
@@ -77,16 +77,24 @@ Implemented now:
   - the current Shadow Hand candidate pool contains `80` contact candidates
 - candidate normals for the Shadow Hand contact set
 - primitive SDFs for `sphere`, `cylinder`, and `box`
+- mesh-object loading from direct mesh paths or original-style object-code layouts
+- convex-hull initialization for mesh objects
+- full-mesh object SDF / normal queries via `TorchSDF`
 - `E_dis`, `E_pen`, `E_spen`, `E_joint`, `E_fc`
-- bounded least-squares / force-closure QP
+- original-style hand-object penetration:
+  - object surface samples against Shadow Hand collision-mesh signed distance
+- original-style force-closure surrogate:
+  - overall friction-cone span metric
+  - bounded QP with warm-started coefficients
 - minimal MALA / MALA* optimizer with:
   - EMA-style gradient normalization
   - annealed step size and temperature
   - MALA* z-score reset support
+- optional contact-index switching during optimization
 - primitive-aware initialization with:
   - object-facing wrist orientation
   - optional `--palm-down` bias
-  - link-diverse active contact selection
+- random active contact initialization matching the original code path
 - result export to `outputs/primitive_optimization.pt`
 - Plotly HTML visualization
 - MeshCat live visualization
@@ -207,6 +215,41 @@ and prints:
 - accepted steps per iteration
 - resets per iteration
 
+### 3.1. Mesh Optimization
+
+Original-style object-code layout:
+
+```bash
+uv run python scripts/optimize_primitive.py \
+  --object-root /home/haegu/minimal_graspqp/assets/objects \
+  --object-code core_bottle \
+  --batch-size 4 \
+  --num-steps 20 \
+  --num-contacts 12 \
+  --mala-star \
+  --contact-switch-probability 0.4 \
+  --output outputs/core_bottle_optimization.pt
+```
+
+Direct mesh path:
+
+```bash
+uv run python scripts/optimize_primitive.py \
+  --mesh-path /home/haegu/minimal_graspqp/assets/objects/remeshed.obj \
+  --batch-size 4 \
+  --num-steps 20 \
+  --num-contacts 12 \
+  --mala-star \
+  --contact-switch-probability 0.4 \
+  --output outputs/mesh_optimization.pt
+```
+
+Notes:
+
+- `--contact-switch-probability 0.4` matches the original `graspqp` default more closely
+- the paper optimizes for `7000` steps; the short commands here are smoke / debug runs
+- mesh initialization uses the convex hull, while distance / normal queries use the full mesh
+
 ### 4. Optimization Result Visualization
 
 Plotly:
@@ -230,12 +273,13 @@ An example run that currently behaves reasonably well for the minimal setup:
 
 ```bash
 uv run python scripts/optimize_primitive.py \
-  --primitive sphere \
-  --palm-down \
+  --object-root /home/haegu/minimal_graspqp/assets/objects \
+  --object-code core_bottle \
   --mala-star \
   --num-contacts 12 \
-  --num-steps 20 \
+  --num-steps 200 \
   --batch-size 4 \
+  --contact-switch-probability 0.4 \
   --seed 0
 ```
 

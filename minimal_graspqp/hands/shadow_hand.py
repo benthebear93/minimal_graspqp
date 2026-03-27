@@ -5,12 +5,17 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
+import importlib.util
 import numpy as np
 import pytorch_kinematics as pk
 import torch
 import trimesh as tm
 
 from minimal_graspqp.assets import resolve_shadow_hand_asset_dir
+
+with_torchsdf = importlib.util.find_spec("torchsdf") is not None
+if with_torchsdf:
+    from torchsdf import compute_sdf, index_vertices_by_faces
 
 
 DEFAULT_JOINT_ORDER = [
@@ -85,6 +90,8 @@ class ShadowHandMetadata:
     contact_candidate_normals: torch.Tensor
     contact_candidate_links: list[str]
     penetration_points: dict[str, torch.Tensor]
+    collision_vertices: dict[str, torch.Tensor]
+    collision_faces: dict[str, torch.Tensor]
 
     @property
     def num_joints(self) -> int:
@@ -173,6 +180,87 @@ def _load_penetration_points(asset_dir: Path) -> dict[str, torch.Tensor]:
     return {name: torch.tensor(points, dtype=torch.float32) for name, points in raw.items()}
 
 
+def _rpy_matrix(roll: float, pitch: float, yaw: float) -> np.ndarray:
+    cr, sr = np.cos(roll), np.sin(roll)
+    cp, sp = np.cos(pitch), np.sin(pitch)
+    cy, sy = np.cos(yaw), np.sin(yaw)
+    return np.array(
+        [
+            [cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr],
+            [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
+            [-sp, cp * sr, cp * cr],
+        ],
+        dtype=np.float32,
+    )
+
+
+def _origin_transform(element: ET.Element | None) -> tuple[np.ndarray, np.ndarray]:
+    if element is None:
+        return np.eye(3, dtype=np.float32), np.zeros(3, dtype=np.float32)
+    xyz = np.fromstring(element.attrib.get("xyz", "0 0 0"), sep=" ", dtype=np.float32)
+    rpy = np.fromstring(element.attrib.get("rpy", "0 0 0"), sep=" ", dtype=np.float32)
+    if xyz.size != 3:
+        xyz = np.zeros(3, dtype=np.float32)
+    if rpy.size != 3:
+        rpy = np.zeros(3, dtype=np.float32)
+    return _rpy_matrix(float(rpy[0]), float(rpy[1]), float(rpy[2])), xyz
+
+
+def _load_geometry_mesh(asset_dir: Path, geometry: ET.Element) -> tm.Trimesh:
+    mesh_node = geometry.find("mesh")
+    if mesh_node is not None:
+        mesh_path = asset_dir / mesh_node.attrib["filename"]
+        mesh = tm.load(mesh_path, force="mesh", process=False)
+        scale = np.fromstring(mesh_node.attrib.get("scale", "1 1 1"), sep=" ", dtype=np.float32)
+        if scale.size == 1:
+            scale = np.repeat(scale, 3)
+        mesh.vertices = np.asarray(mesh.vertices, dtype=np.float32) * scale.reshape(1, 3)
+        return mesh
+    box_node = geometry.find("box")
+    if box_node is not None:
+        size = np.fromstring(box_node.attrib["size"], sep=" ", dtype=np.float32)
+        return tm.creation.box(extents=size)
+    sphere_node = geometry.find("sphere")
+    if sphere_node is not None:
+        return tm.primitives.Sphere(radius=float(sphere_node.attrib["radius"]))
+    cylinder_node = geometry.find("cylinder")
+    if cylinder_node is not None:
+        return tm.primitives.Cylinder(radius=float(cylinder_node.attrib["radius"]), height=float(cylinder_node.attrib["length"]))
+    raise ValueError("Unsupported geometry node in Shadow Hand URDF.")
+
+
+def _load_collision_meshes(asset_dir: Path, urdf_path: Path) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
+    root = ET.fromstring(urdf_path.read_text())
+    vertices_by_link: dict[str, torch.Tensor] = {}
+    faces_by_link: dict[str, torch.Tensor] = {}
+    for link in root.findall("link"):
+        link_name = link.attrib["name"]
+        elements = link.findall("collision")
+        if not elements:
+            elements = link.findall("visual")
+        if not elements:
+            continue
+        link_vertices = []
+        link_faces = []
+        vertex_offset = 0
+        for element in elements:
+            geometry = element.find("geometry")
+            if geometry is None:
+                continue
+            mesh = _load_geometry_mesh(asset_dir, geometry)
+            rotation, translation = _origin_transform(element.find("origin"))
+            vertices = np.asarray(mesh.vertices, dtype=np.float32)
+            vertices = vertices @ rotation.T + translation.reshape(1, 3)
+            faces = np.asarray(mesh.faces, dtype=np.int64)
+            link_vertices.append(torch.tensor(vertices, dtype=torch.float32))
+            link_faces.append(torch.tensor(faces + vertex_offset, dtype=torch.long))
+            vertex_offset += vertices.shape[0]
+        if link_vertices:
+            vertices_by_link[link_name] = torch.cat(link_vertices, dim=0)
+            faces_by_link[link_name] = torch.cat(link_faces, dim=0)
+    return vertices_by_link, faces_by_link
+
+
 def load_shadow_hand_metadata(asset_dir: str | Path | None = None) -> ShadowHandMetadata:
     resolved_dir = resolve_shadow_hand_asset_dir(asset_dir)
     urdf_path = resolved_dir / "shadow_hand.urdf"
@@ -182,6 +270,7 @@ def load_shadow_hand_metadata(asset_dir: str | Path | None = None) -> ShadowHand
         raise ValueError("Unexpected Shadow Hand joint order in URDF.")
     joint_lower, joint_upper = _parse_joint_limits(urdf_path, joint_names)
     contact_candidate_points, contact_candidate_normals, contact_candidate_links = _load_contact_candidates(resolved_dir)
+    collision_vertices, collision_faces = _load_collision_meshes(resolved_dir, urdf_path)
     return ShadowHandMetadata(
         asset_dir=resolved_dir,
         urdf_path=urdf_path,
@@ -195,6 +284,8 @@ def load_shadow_hand_metadata(asset_dir: str | Path | None = None) -> ShadowHand
         contact_candidate_normals=contact_candidate_normals,
         contact_candidate_links=contact_candidate_links,
         penetration_points=_load_penetration_points(resolved_dir),
+        collision_vertices=collision_vertices,
+        collision_faces=collision_faces,
     )
 
 
@@ -209,6 +300,18 @@ class ShadowHandModel:
         self._candidate_points = metadata.contact_candidate_points.to(device=self.device, dtype=dtype)
         self._candidate_normals = metadata.contact_candidate_normals.to(device=self.device, dtype=dtype)
         self._penetration_links = list(metadata.penetration_points.keys())
+        self._collision_meshes: dict[str, dict[str, object]] = {}
+        for link_name, vertices in metadata.collision_vertices.items():
+            faces = metadata.collision_faces[link_name]
+            mesh_data: dict[str, object] = {
+                "vertices": vertices.to(dtype=self.dtype),
+                "faces": faces,
+            }
+            if with_torchsdf:
+                mesh_data["face_verts"] = index_vertices_by_faces(vertices.to(dtype=torch.float32), faces)
+            else:
+                mesh_data["mesh"] = tm.Trimesh(vertices.numpy(), faces.numpy(), process=False)
+            self._collision_meshes[link_name] = mesh_data
 
     @classmethod
     def create(cls, asset_dir: str | Path | None = None, device: str | torch.device = "cpu") -> "ShadowHandModel":
@@ -304,3 +407,38 @@ class ShadowHandModel:
         radii_cat = torch.cat(radii, dim=1)
         centers_cat = self.apply_wrist_pose(centers_cat, wrist_translation=wrist_translation, wrist_rotation=wrist_rotation)
         return centers_cat, radii_cat, link_names
+
+    def cal_distance(
+        self,
+        points_world: torch.Tensor,
+        joint_values: torch.Tensor,
+        wrist_translation: torch.Tensor | None = None,
+        wrist_rotation: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        if not self._collision_meshes:
+            raise ValueError("Shadow Hand collision meshes are unavailable.")
+
+        points = points_world
+        if wrist_rotation is None:
+            wrist_rotation = torch.eye(3, device=points.device, dtype=points.dtype).unsqueeze(0).expand(points.shape[0], -1, -1)
+        if wrist_translation is None:
+            wrist_translation = torch.zeros((points.shape[0], 3), device=points.device, dtype=points.dtype)
+        points = (points - wrist_translation.unsqueeze(1)) @ wrist_rotation
+
+        transforms = self.forward_kinematics(joint_values)
+        distances = []
+        for link_name, mesh_data in self._collision_meshes.items():
+            transform = transforms[link_name]
+            points_local = (points - transform[:, :3, 3].unsqueeze(1)) @ transform[:, :3, :3]
+            flat_points = points_local.reshape(-1, 3)
+            if with_torchsdf:
+                face_verts = mesh_data["face_verts"].to(device=flat_points.device, dtype=flat_points.dtype)
+                squared_distance, signs, _, _ = compute_sdf(flat_points, face_verts)
+                link_distance = torch.sqrt(squared_distance + 1e-8) * (-signs.to(dtype=flat_points.dtype))
+                distances.append(link_distance.reshape(points.shape[0], points.shape[1]))
+                continue
+            query = flat_points.detach().cpu().numpy()
+            mesh = mesh_data["mesh"]
+            link_distance = tm.proximity.signed_distance(mesh, query)
+            distances.append(torch.tensor(link_distance, dtype=points.dtype, device=points.device).reshape(points.shape[0], points.shape[1]))
+        return torch.stack(distances, dim=0).max(dim=0).values

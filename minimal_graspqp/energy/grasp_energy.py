@@ -32,6 +32,24 @@ def compute_self_penetration_energy(
     return (overlap * mask.unsqueeze(0)).sum(dim=(1, 2)) * 0.5
 
 
+def _surface_points_for_penetration(
+    primitive: Any,
+    num_samples: int,
+    dtype: torch.dtype,
+    device: torch.device,
+) -> torch.Tensor:
+    cache = getattr(primitive, "_penetration_surface_cache", None)
+    if cache is None:
+        cache = {}
+        setattr(primitive, "_penetration_surface_cache", cache)
+    if num_samples not in cache:
+        if not hasattr(primitive, "sample_surface"):
+            raise ValueError("Object must provide sample_surface(...) for penetration evaluation.")
+        points, _ = primitive.sample_surface(num_samples, dtype=torch.float32, device=torch.device("cpu"))
+        cache[num_samples] = points.detach().cpu()
+    return cache[num_samples].to(device=device, dtype=dtype)
+
+
 def compute_grasp_energy(
     hand_model,
     primitive: Any,
@@ -42,6 +60,7 @@ def compute_grasp_energy(
     w_pen: float = 100.0,
     w_spen: float = 10.0,
     w_joint: float = 1.0,
+    num_penetration_samples: int = 256,
 ) -> dict[str, torch.Tensor]:
     contact_points = hand_model.contact_candidates_world(
         grasp_state.joint_values,
@@ -56,13 +75,24 @@ def compute_grasp_energy(
     e_dis = signed_distance.abs().sum(dim=-1)
     e_fc = force_closure_metric.evaluate(contact_points, contact_normals, cog)
 
+    object_surface_points = _surface_points_for_penetration(
+        primitive,
+        num_samples=num_penetration_samples,
+        dtype=contact_points.dtype,
+        device=contact_points.device,
+    ).unsqueeze(0).expand(contact_points.shape[0], -1, -1)
+    e_pen = hand_model.cal_distance(
+        object_surface_points,
+        grasp_state.joint_values,
+        wrist_translation=grasp_state.wrist_translation,
+        wrist_rotation=grasp_state.wrist_rotation,
+    ).clamp_min(0.0).sum(dim=-1)
+
     penetration_centers, penetration_radii, link_names = hand_model.penetration_spheres_world(
         grasp_state.joint_values,
         wrist_translation=grasp_state.wrist_translation,
         wrist_rotation=grasp_state.wrist_rotation,
     )
-    penetration_sdf = primitive.signed_distance(penetration_centers) - penetration_radii
-    e_pen = (-penetration_sdf).clamp_min(0.0).sum(dim=-1)
     e_spen = compute_self_penetration_energy(penetration_centers, penetration_radii, link_names)
     e_joint = compute_joint_limit_penalty(
         grasp_state.joint_values,

@@ -37,8 +37,15 @@ def test_compute_grasp_energy_returns_term_breakdown():
 
 def test_compute_grasp_energy_penalizes_inside_translation():
     hand_model = ShadowHandModel.create(device="cpu")
-    primitive = Sphere(radius=0.2)
     default_joint_values = hand_model.default_joint_state(batch_size=1)
+    transforms = hand_model.forward_kinematics(default_joint_values)
+    palm_vertices = hand_model._collision_meshes["robot0_palm"]["vertices"]
+    palm_center_local = palm_vertices.mean(dim=0)
+    palm_transform = transforms["robot0_palm"][0]
+    palm_center_world = (
+        palm_transform[:3, :3] @ palm_center_local.unsqueeze(-1)
+    ).squeeze(-1) + palm_transform[:3, 3]
+    primitive = Sphere(radius=0.03, center=tuple(float(x) for x in palm_center_world.tolist()))
     metric = ForceClosureQP(min_force=0.0, max_force=10.0)
 
     outside_state = GraspState(
@@ -49,7 +56,7 @@ def test_compute_grasp_energy_penalizes_inside_translation():
     )
     inside_state = GraspState(
         joint_values=default_joint_values.clone(),
-        wrist_translation=torch.tensor([[0.02, 0.0, 0.0]], dtype=torch.float32),
+        wrist_translation=torch.zeros((1, 3), dtype=torch.float32),
         wrist_rotation=torch.eye(3).unsqueeze(0),
         contact_indices=torch.tensor([[0, 1, 2, 3]], dtype=torch.long),
     )

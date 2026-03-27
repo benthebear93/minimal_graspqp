@@ -21,6 +21,8 @@ def test_load_shadow_hand_metadata():
     assert metadata.contact_candidate_normals.shape == metadata.contact_candidate_points.shape
     assert len(metadata.contact_candidate_links) == metadata.num_contact_candidates
     assert "robot0_ffdistal" in metadata.penetration_points
+    assert "robot0_palm" in metadata.collision_vertices
+    assert "robot0_palm" in metadata.collision_faces
     assert metadata.num_contact_candidates == 80
 
 
@@ -53,3 +55,19 @@ def test_shadow_hand_contact_candidates_are_not_one_point_per_link():
     assert counts["robot0_ffdistal"] == 8
     assert counts["robot0_ffmiddle"] == 4
     assert counts["robot0_thdistal"] == 8
+
+
+def test_shadow_hand_cal_distance_uses_collision_meshes():
+    model = ShadowHandModel.create(device="cpu")
+    joint_values = model.default_joint_state(batch_size=1)
+    transforms = model.forward_kinematics(joint_values)
+    palm_vertices = model._collision_meshes["robot0_palm"]["vertices"]
+    palm_center_local = palm_vertices.mean(dim=0)
+    palm_transform = transforms["robot0_palm"][0]
+    palm_center_world = (
+        palm_transform[:3, :3] @ palm_center_local.unsqueeze(-1)
+    ).squeeze(-1) + palm_transform[:3, 3]
+    query = torch.stack([palm_center_world, torch.tensor([1.0, 1.0, 1.0], dtype=torch.float32)], dim=0).unsqueeze(0)
+    distance = model.cal_distance(query, joint_values)
+    assert distance[0, 0].item() > 0.0
+    assert distance[0, 1].item() < 0.0

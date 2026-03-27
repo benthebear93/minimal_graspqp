@@ -7,7 +7,7 @@ def test_friction_cone_edges_shape_and_norm():
     normals = torch.tensor([[[0.0, 0.0, 1.0], [0.0, 1.0, 0.0]]], dtype=torch.float32)
     edges = friction_cone_edges(normals, friction=0.5, num_edges=4)
     assert edges.shape == (1, 8, 3)
-    assert torch.allclose(edges.norm(dim=-1), torch.ones_like(edges[..., 0]), atol=1e-5)
+    assert torch.allclose(edges.norm(dim=-1), torch.full_like(edges[..., 0], 0.25), atol=1e-5)
 
 
 def test_build_wrench_matrix_shape():

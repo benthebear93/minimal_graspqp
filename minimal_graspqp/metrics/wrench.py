@@ -20,19 +20,28 @@ def _orthonormal_basis(normals: torch.Tensor) -> tuple[torch.Tensor, torch.Tenso
 
 
 def friction_cone_edges(normals: torch.Tensor, friction: float = 0.2, num_edges: int = 4) -> torch.Tensor:
-    tangent_1, tangent_2 = _orthonormal_basis(_normalize(normals))
-    edge_angles = torch.linspace(
-        0.0,
-        2.0 * math.pi,
-        steps=num_edges + 1,
-        device=normals.device,
-        dtype=normals.dtype,
-    )[:-1]
-    cone_edges = []
-    for angle in edge_angles:
-        tangent = torch.cos(angle) * tangent_1 + torch.sin(angle) * tangent_2
-        cone_edges.append(_normalize(normals + friction * tangent))
-    return torch.stack(cone_edges, dim=-2).flatten(-2, -1).reshape(*normals.shape[:-2], normals.shape[-2] * num_edges, 3)
+    normals = _normalize(normals)
+    tangent_1, tangent_2 = _orthonormal_basis(normals)
+    if num_edges == 4:
+        cone_edges = [
+            friction * tangent_1 + math.sqrt(1.0 - friction**2) * normals,
+            friction * tangent_2 + math.sqrt(1.0 - friction**2) * normals,
+            -friction * tangent_1 + math.sqrt(1.0 - friction**2) * normals,
+            -friction * tangent_2 + math.sqrt(1.0 - friction**2) * normals,
+        ]
+    else:
+        edge_angles = torch.linspace(
+            0.0,
+            2.0 * math.pi,
+            steps=num_edges + 1,
+            device=normals.device,
+            dtype=normals.dtype,
+        )[:-1]
+        cone_edges = []
+        for angle in edge_angles:
+            basis = math.cos(float(angle)) * tangent_1 + math.sin(float(angle)) * tangent_2
+            cone_edges.append(friction * basis + math.sqrt(1.0 - friction**2) * normals)
+    return torch.stack(cone_edges, dim=-2).flatten(-3, -2) / len(cone_edges)
 
 
 def build_wrench_matrix(

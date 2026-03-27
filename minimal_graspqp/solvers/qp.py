@@ -14,6 +14,7 @@ class BoundedLeastSquaresQPSolver:
         self,
         A: torch.Tensor,
         b: torch.Tensor,
+        init: torch.Tensor | float | int | None = None,
         min_bound: float = 1.0,
         max_bound: float = 20.0,
         return_solution: bool = False,
@@ -32,6 +33,18 @@ class BoundedLeastSquaresQPSolver:
         device = A.device
         dtype = A.dtype
 
+        if init is None:
+            init = torch.ones((A_flat.shape[0], num_vars), device=device, dtype=dtype)
+        elif isinstance(init, (int, float)):
+            init = torch.full((A_flat.shape[0], num_vars), float(init), device=device, dtype=dtype)
+        else:
+            if init.ndim == len(leading_shape) + 1:
+                init = init.reshape(-1, num_vars)
+            init = init.to(device=device, dtype=dtype).clone()
+            if init.shape[0] != A_flat.shape[0]:
+                init = torch.full((A_flat.shape[0], num_vars), 1.5, device=device, dtype=dtype)
+        init = init.clamp(min_bound + 1e-6, max_bound - 1e-6)
+
         eye = torch.eye(num_vars, device=device, dtype=dtype).unsqueeze(0)
         q = A_flat.transpose(-1, -2) @ A_flat + eye * 1e-4
         p = -(A_flat.transpose(-1, -2) @ b_flat.unsqueeze(-1)).squeeze(-1)
@@ -45,6 +58,7 @@ class BoundedLeastSquaresQPSolver:
         )
         equality_matrix = torch.empty((A_flat.shape[0], 0, num_vars), device=device, dtype=dtype)
         equality_rhs = torch.empty((A_flat.shape[0], 0), device=device, dtype=dtype)
+        del init
         solution = self.qp(q, p, G, h, equality_matrix, equality_rhs)
         residual = 0.5 * ((A_flat @ solution.unsqueeze(-1)).squeeze(-1) - b_flat).pow(2).sum(dim=-1)
         residual = residual.reshape(leading_shape)

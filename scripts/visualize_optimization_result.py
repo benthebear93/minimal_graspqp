@@ -6,13 +6,15 @@ from pathlib import Path
 import torch
 
 from minimal_graspqp.hands import ShadowHandModel
-from minimal_graspqp.objects import Box, Cylinder, Sphere
+from minimal_graspqp.objects import Box, Cylinder, MeshObject, Sphere
 from minimal_graspqp.state import GraspState
 from minimal_graspqp.visualization import create_optimization_result_figure
 
 
 def build_primitive_from_metadata(metadata: dict):
     primitive_type = metadata["type"]
+    if primitive_type == "mesh":
+        return MeshObject(Path(metadata["mesh_path"]))
     center = tuple(metadata.get("center", [0.0, 0.0, 0.0]))
     if primitive_type == "sphere":
         return Sphere(radius=float(metadata["radius"]), center=center)
@@ -20,7 +22,7 @@ def build_primitive_from_metadata(metadata: dict):
         return Cylinder(radius=float(metadata["radius"]), half_height=float(metadata["half_height"]), center=center)
     if primitive_type == "box":
         return Box(half_extents=tuple(metadata["half_extents"]), center=center)
-    raise ValueError(f"Unsupported primitive metadata: {primitive_type}")
+    raise ValueError(f"Unsupported object metadata: {primitive_type}")
 
 
 def _to_state(payload: dict, key: str) -> GraspState:
