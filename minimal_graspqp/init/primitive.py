@@ -5,7 +5,7 @@ import math
 import torch
 
 from minimal_graspqp.objects import Box, Cylinder, MeshObject, Sphere
-from minimal_graspqp.rotation import look_at_rotation, project_rotation_matrices
+from minimal_graspqp.rotation import project_rotation_matrices
 from minimal_graspqp.state import GraspState
 
 
@@ -29,6 +29,18 @@ def _random_contact_indices(num_candidates: int, batch_size: int, num_contacts: 
     return torch.randint(num_candidates, size=(batch_size, num_contacts), device=device)
 
 
+def _object_facing_rotation(forward: torch.Tensor, dtype: torch.dtype, device: torch.device) -> torch.Tensor:
+    forward = forward / forward.norm(dim=-1, keepdim=True).clamp_min(1e-8)
+    up_hint = torch.tensor([1.0, 0.0, 0.0], dtype=dtype, device=device).unsqueeze(0).expand_as(forward).clone()
+    fallback_up = torch.tensor([0.0, 1.0, 0.0], dtype=dtype, device=device).unsqueeze(0).expand_as(forward)
+    aligned = (forward * up_hint).sum(dim=-1, keepdim=True).abs() > 0.95
+    up_hint = torch.where(aligned, fallback_up, up_hint)
+    right = torch.linalg.cross(up_hint, forward)
+    right = right / right.norm(dim=-1, keepdim=True).clamp_min(1e-8)
+    true_up = torch.linalg.cross(forward, right)
+    return torch.stack([right, true_up, forward], dim=-1)
+
+
 def initialize_grasps_for_primitive(
     hand_model,
     primitive: Sphere | Cylinder | Box | MeshObject,
@@ -49,20 +61,13 @@ def initialize_grasps_for_primitive(
         surface_points, surface_normals = primitive.sample_surface(batch_size=batch_size, dtype=dtype, device=device)
     radii = distance_lower + (distance_upper - distance_lower) * torch.rand(batch_size, 1, dtype=dtype, device=device)
     wrist_translation = surface_points + surface_normals * radii
-    forward_axis = torch.tensor([0.0, 0.0, 1.0], dtype=dtype, device=device)
-    up_axis = torch.tensor([1.0, 0.0, 0.0], dtype=dtype, device=device)
-    wrist_rotation = look_at_rotation(
-        wrist_translation,
-        surface_points,
-        forward_axis=forward_axis,
-        up_axis=up_axis,
-    )
+    desired_forward = -surface_normals
+    wrist_rotation = _object_facing_rotation(desired_forward, dtype=dtype, device=device)
     wrist_rotation = wrist_rotation @ _random_rotation_matrices(batch_size, max_angle=max_wrist_angle, dtype=dtype, device=device)
     if base_wrist_rotation is not None:
         base_wrist_rotation = base_wrist_rotation.to(device=device, dtype=dtype)
         wrist_rotation = wrist_rotation @ base_wrist_rotation.unsqueeze(0)
     wrist_rotation = project_rotation_matrices(wrist_rotation)
-    desired_forward = -surface_normals
     current_forward = wrist_rotation[:, :, 2]
     flip_mask = (current_forward * desired_forward).sum(dim=-1) < 0
     if flip_mask.any():

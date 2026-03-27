@@ -8,6 +8,10 @@ import numpy as np
 import torch
 import trimesh as tm
 
+with_torchsdf = importlib.util.find_spec("torchsdf") is not None
+if with_torchsdf:
+    from torchsdf import compute_sdf, index_vertices_by_faces
+
 
 @dataclass
 class MeshObject:
@@ -24,6 +28,11 @@ class MeshObject:
         hull_triangles = np.asarray(self._convex_hull.triangles, dtype=np.float32)
         self._hull_face_points = torch.tensor(hull_triangles[:, 0, :], dtype=torch.float32)
         self._hull_face_normals = torch.tensor(np.asarray(self._convex_hull.face_normals, dtype=np.float32), dtype=torch.float32)
+        hull_vertices = torch.tensor(np.asarray(self._convex_hull.vertices, dtype=np.float32), dtype=torch.float32)
+        hull_faces = torch.tensor(np.asarray(self._convex_hull.faces, dtype=np.int64), dtype=torch.long)
+        self._hull_vertices = hull_vertices
+        self._hull_faces = hull_faces
+        self._hull_face_verts = index_vertices_by_faces(hull_vertices, hull_faces) if with_torchsdf else None
 
     @property
     def mesh(self) -> tm.Trimesh:
@@ -79,9 +88,16 @@ class MeshObject:
         )
 
     def signed_distance(self, points: torch.Tensor) -> torch.Tensor:
+        if self._hull_face_verts is not None:
+            flat_points = points.reshape(-1, 3)
+            face_verts = self._hull_face_verts.to(device=points.device, dtype=points.dtype)
+            squared_distance, signs, normal, _ = compute_sdf(flat_points, face_verts)
+            del normal
+            signed_distance = torch.sqrt(squared_distance + 1e-8) * (-signs.to(dtype=points.dtype))
+            return signed_distance.reshape(points.shape[:-1])
         if self._has_rtree:
             query = points.detach().cpu().reshape(-1, 3).numpy()
-            sdf = -tm.proximity.signed_distance(self.mesh, query)
+            sdf = -tm.proximity.signed_distance(self.convex_hull, query)
             return torch.tensor(sdf, dtype=points.dtype, device=points.device).reshape(points.shape[:-1])
         face_points = self._hull_face_points.to(device=points.device, dtype=points.dtype)
         face_normals = self._hull_face_normals.to(device=points.device, dtype=points.dtype)
@@ -91,10 +107,16 @@ class MeshObject:
         return sdf.reshape(points.shape[:-1])
 
     def normals(self, points: torch.Tensor) -> torch.Tensor:
+        if self._hull_face_verts is not None:
+            flat_points = points.reshape(-1, 3)
+            face_verts = self._hull_face_verts.to(device=points.device, dtype=points.dtype)
+            _, signs, normal, _ = compute_sdf(flat_points, face_verts)
+            outward = normal * signs.to(dtype=points.dtype).unsqueeze(1)
+            return outward.reshape(*points.shape)
         if self._has_rtree:
             query = points.detach().cpu().reshape(-1, 3).numpy()
-            _, _, triangle_ids = self.mesh.nearest.on_surface(query)
-            face_normals = self.mesh.face_normals[triangle_ids]
+            _, _, triangle_ids = self.convex_hull.nearest.on_surface(query)
+            face_normals = self.convex_hull.face_normals[triangle_ids]
             return torch.tensor(face_normals, dtype=points.dtype, device=points.device).reshape(*points.shape)
         face_points = self._hull_face_points.to(device=points.device, dtype=points.dtype)
         face_normals = self._hull_face_normals.to(device=points.device, dtype=points.dtype)

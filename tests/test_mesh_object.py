@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import importlib.util
 import torch
 
 from minimal_graspqp.hands import ShadowHandModel
@@ -8,6 +9,7 @@ from minimal_graspqp.objects import MeshObject
 
 
 MESH_PATH = Path("/home/haegu/mj_sim/assets/syringe/assets/syringe.obj")
+HAS_TORCHSDF = importlib.util.find_spec("torchsdf") is not None
 
 
 def test_mesh_object_initialization_smoke():
@@ -28,6 +30,20 @@ def test_mesh_object_signed_distance_and_normals_shapes():
         return
     mesh_object = MeshObject(MESH_PATH)
     points = torch.tensor([[[0.0, 0.0, 0.0], [0.01, 0.0, 0.0]]], dtype=torch.float32)
+    sdf = mesh_object.signed_distance(points)
+    normals = mesh_object.normals(points)
+    assert sdf.shape == (1, 2)
+    assert normals.shape == (1, 2, 3)
+    assert torch.isfinite(sdf).all()
+    assert torch.isfinite(normals).all()
+
+
+def test_mesh_object_uses_torchsdf_when_available():
+    if not MESH_PATH.exists() or not HAS_TORCHSDF:
+        return
+    mesh_object = MeshObject(MESH_PATH)
+    assert mesh_object._hull_face_verts is not None
+    points = torch.tensor([[[5.0, 0.0, 0.0], [-5.0, 0.0, 0.0]]], dtype=torch.float32)
     sdf = mesh_object.signed_distance(points)
     normals = mesh_object.normals(points)
     assert sdf.shape == (1, 2)
