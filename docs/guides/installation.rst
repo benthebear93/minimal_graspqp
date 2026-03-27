@@ -16,7 +16,7 @@ Create and sync the environment:
 
    uv venv --python 3.11
    source .venv/bin/activate
-   uv sync --extra dev --extra viz --extra meshcat --extra docs
+   uv sync --extra dev --extra viser --extra docs
 
 Asset Resolution
 ----------------

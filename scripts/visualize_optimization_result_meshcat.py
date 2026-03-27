@@ -8,7 +8,7 @@ import torch
 from minimal_graspqp.hands import ShadowHandModel
 from minimal_graspqp.objects import Box, Cylinder, MeshObject, Sphere
 from minimal_graspqp.state import GraspState
-from minimal_graspqp.visualization import publish_optimization_result_meshcat
+from minimal_graspqp.visualization import publish_optimization_result_viser
 
 
 def build_primitive_from_metadata(metadata: dict):
@@ -36,10 +36,12 @@ def _to_state(payload: dict, key: str) -> GraspState:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Visualize optimization results in MeshCat.")
+    parser = argparse.ArgumentParser(description="Visualize optimization results in viser.")
     parser.add_argument("--input", default="outputs/primitive_optimization.pt")
     parser.add_argument("--sample-index", type=int, default=0)
     parser.add_argument("--device", default="cpu")
+    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--duration", type=float, default=0.0)
     args = parser.parse_args()
 
@@ -49,14 +51,23 @@ def main():
     hand_model = ShadowHandModel.create(device=args.device, fingertips_only=fingertips_only)
     initial_state = _to_state(payload, "initial_state")
     final_state = _to_state(payload, "final_state")
-    vis = publish_optimization_result_meshcat(hand_model, primitive, initial_state, final_state, sample_index=args.sample_index)
-    print("MeshCat optimization visualization ready.")
-    print(f"Open this URL in your browser: {vis.url()}")
+    server = publish_optimization_result_viser(
+        hand_model,
+        primitive,
+        initial_state,
+        final_state,
+        sample_index=args.sample_index,
+        host=args.host,
+        port=args.port,
+    )
+    print("Viser optimization visualization ready.")
+    print(f"Open this URL in your browser: http://localhost:{args.port}")
     if "initial_energy" in payload and "final_energy" in payload:
         print(f"Initial energy[{args.sample_index}]: {float(payload['initial_energy'][args.sample_index]):.6f}")
         print(f"Final energy[{args.sample_index}]: {float(payload['final_energy'][args.sample_index]):.6f}")
     if args.duration > 0:
         time.sleep(args.duration)
+        server.stop()
         return
     while True:
         time.sleep(1.0)

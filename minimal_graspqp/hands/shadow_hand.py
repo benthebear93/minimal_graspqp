@@ -319,6 +319,33 @@ def filter_contact_candidates(
     )
 
 
+def apply_contact_candidate_overrides(
+    metadata: ShadowHandMetadata,
+    overrides: dict[int, list[float] | tuple[float, float, float]],
+) -> ShadowHandMetadata:
+    if not overrides:
+        return metadata
+    points = metadata.contact_candidate_points.clone()
+    for index, point in overrides.items():
+        if index < 0 or index >= points.shape[0]:
+            raise IndexError(f"Contact candidate override index out of range: {index}")
+        point_tensor = torch.tensor(point, dtype=points.dtype)
+        if point_tensor.shape != (3,):
+            raise ValueError(f"Contact candidate override for index {index} must have shape (3,).")
+        points[index] = point_tensor
+    return replace(metadata, contact_candidate_points=points)
+
+
+def load_contact_candidate_overrides(path: str | Path | None) -> dict[int, list[float]]:
+    if path is None:
+        return {}
+    raw = json.loads(Path(path).read_text())
+    overrides: dict[int, list[float]] = {}
+    for key, value in raw.items():
+        overrides[int(key)] = value
+    return overrides
+
+
 class ShadowHandModel:
     """Minimal Shadow Hand wrapper for FK and contact candidate transforms."""
 
@@ -349,8 +376,14 @@ class ShadowHandModel:
         asset_dir: str | Path | None = None,
         device: str | torch.device = "cpu",
         fingertips_only: bool = False,
+        contact_points_override_path: str | Path | None = None,
     ) -> "ShadowHandModel":
         metadata = load_shadow_hand_metadata(asset_dir=asset_dir)
+        if contact_points_override_path is not None:
+            metadata = apply_contact_candidate_overrides(
+                metadata,
+                load_contact_candidate_overrides(contact_points_override_path),
+            )
         if fingertips_only:
             metadata = filter_contact_candidates(metadata, FINGERTIP_LINK_NAMES)
         return cls(metadata, device=device)

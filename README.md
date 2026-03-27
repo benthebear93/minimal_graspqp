@@ -17,7 +17,7 @@ The current codebase implements a minimal end-to-end pipeline:
 - differentiable force-closure QP
 - grasp energy terms
 - MALA / MALA* optimization
-- Plotly and MeshCat visualization
+- viser visualization
 
 ## Setup
 
@@ -34,7 +34,7 @@ Create the environment and install everything used by the current repo:
 ```bash
 uv venv --python 3.11
 source .venv/bin/activate
-uv sync --extra dev --extra viz --extra meshcat --extra mesh
+uv sync --extra dev --extra viser --extra mesh
 ```
 
 Useful commands:
@@ -59,7 +59,7 @@ uv run sphinx-build -b html docs docs/_build/html
 │   ├── optim/            # MALA / MALA*
 │   ├── solvers/          # QP wrappers
 │   ├── state.py          # grasp-state container
-│   └── visualization/    # Plotly and MeshCat viewers
+│   └── visualization/    # viser viewers
 ├── scripts/              # runnable examples
 ├── tests/                # feature-level tests
 ├── SOFTWARE_REQUIREMENTS.md
@@ -96,8 +96,7 @@ Implemented now:
   - optional `--palm-down` bias
 - random active contact initialization matching the original code path
 - result export to `outputs/primitive_optimization.pt`
-- Plotly HTML visualization
-- MeshCat live visualization
+- viser live visualization
 
 Out of scope for this repo:
 
@@ -130,42 +129,21 @@ Deployment options:
 
 ### 1. Static Visualization
 
-Plotly:
-
 ```bash
-uv run python scripts/visualize_shadow_hand_with_primitive.py --primitive sphere --palm-down --show
-```
-
-MeshCat:
-
-```bash
-uv run python scripts/visualize_shadow_hand_with_primitive_meshcat.py --primitive sphere --palm-down
+uv run python scripts/visualize_shadow_hand_with_primitive.py --primitive sphere --palm-down
 ```
 
 Other supported primitives:
 
 ```bash
-uv run python scripts/visualize_shadow_hand_with_primitive_meshcat.py --primitive cylinder
-uv run python scripts/visualize_shadow_hand_with_primitive_meshcat.py --primitive box
+uv run python scripts/visualize_shadow_hand_with_primitive.py --primitive cylinder
+uv run python scripts/visualize_shadow_hand_with_primitive.py --primitive box
 ```
-
-The MeshCat viewer is configured without the default grid, axes, or background.
 
 ### 2. Initialization Visualization
 
-Plotly:
-
 ```bash
-uv run python scripts/visualize_initialization.py --primitive sphere --batch-size 6 --palm-down --show
-```
-
-Save to HTML:
-
-```bash
-uv run python scripts/visualize_initialization.py \
-  --primitive cylinder \
-  --batch-size 8 \
-  --output outputs/init_cylinder.html
+uv run python scripts/visualize_initialization.py --primitive sphere --batch-size 6 --palm-down
 ```
 
 ### 3. Primitive Optimization
@@ -252,19 +230,8 @@ Notes:
 
 ### 4. Optimization Result Visualization
 
-Plotly:
-
 ```bash
 uv run python scripts/visualize_optimization_result.py \
-  --input outputs/primitive_optimization.pt \
-  --sample-index 0 \
-  --show
-```
-
-MeshCat:
-
-```bash
-uv run python scripts/visualize_optimization_result_meshcat.py \
   --input outputs/primitive_optimization.pt \
   --sample-index 0
 ```
@@ -301,8 +268,7 @@ Tests are organized by feature, including:
 - initialization
 - energy computation
 - optimizer behavior
-- Plotly visualization smoke tests
-- MeshCat visualization smoke tests
+- viser visualization smoke tests
 
 ## Notes
 

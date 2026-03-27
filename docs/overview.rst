@@ -16,7 +16,7 @@ Included in this repository:
 - energy-based grasp scoring
 - force-closure evaluation through a differentiable QP
 - MALA and MALA* sampling-style optimization
-- Plotly and MeshCat visualization
+- viser visualization
 
 Explicitly out of scope:
 
@@ -50,6 +50,6 @@ The repository is organized around the same stages:
 - ``minimal_graspqp/energy``: grasp objective terms
 - ``minimal_graspqp/optim``: MALA optimizer and history containers
 - ``minimal_graspqp/solvers``: bounded QP backend
-- ``minimal_graspqp/visualization``: Plotly and MeshCat scene builders
+- ``minimal_graspqp/visualization``: viser scene builders
 - ``scripts``: runnable entry points for visualization and optimization
 - ``tests``: feature-level regression coverage

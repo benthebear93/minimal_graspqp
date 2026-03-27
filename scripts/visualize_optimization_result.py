@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
+import time
 
 import torch
 
 from minimal_graspqp.hands import ShadowHandModel
 from minimal_graspqp.objects import Box, Cylinder, MeshObject, Sphere
 from minimal_graspqp.state import GraspState
-from minimal_graspqp.visualization import create_optimization_result_figure
+from minimal_graspqp.visualization import publish_optimization_result_viser
 
 
 def build_primitive_from_metadata(metadata: dict):
@@ -42,8 +42,9 @@ def main():
     parser.add_argument("--input", default="outputs/primitive_optimization.pt")
     parser.add_argument("--sample-index", type=int, default=0)
     parser.add_argument("--device", default="cpu")
-    parser.add_argument("--output", default="outputs/primitive_optimization.html")
-    parser.add_argument("--show", action="store_true")
+    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument("--duration", type=float, default=0.0)
     args = parser.parse_args()
 
     payload = torch.load(args.input, map_location="cpu", weights_only=False)
@@ -53,22 +54,26 @@ def main():
     fingertips_only = bool(payload.get("hand", {}).get("fingertips_only", False))
     hand_model = ShadowHandModel.create(device=args.device, fingertips_only=fingertips_only)
 
-    figure = create_optimization_result_figure(
+    server = publish_optimization_result_viser(
         hand_model,
         primitive,
         initial_state=initial_state,
         final_state=final_state,
         sample_index=args.sample_index,
+        host=args.host,
+        port=args.port,
     )
-    output_path = Path(args.output)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    figure.write_html(str(output_path))
-    print(f"Wrote optimization visualization to {output_path}")
+    print("Viser optimization visualization ready.")
+    print(f"Open this URL in your browser: http://localhost:{args.port}")
     if "initial_energy" in payload and "final_energy" in payload:
         print(f"Initial energy[{args.sample_index}]: {float(payload['initial_energy'][args.sample_index]):.6f}")
         print(f"Final energy[{args.sample_index}]: {float(payload['final_energy'][args.sample_index]):.6f}")
-    if args.show:
-        figure.show()
+    if args.duration > 0:
+        time.sleep(args.duration)
+        server.stop()
+        return
+    while True:
+        time.sleep(1.0)
 
 
 if __name__ == "__main__":

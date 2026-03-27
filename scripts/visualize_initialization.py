@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
+import time
 
 from minimal_graspqp.hands import ShadowHandModel
 from minimal_graspqp.init import initialize_grasps_for_primitive
 from minimal_graspqp.objects import Box, Cylinder, Sphere
 from minimal_graspqp.rotation import palm_down_rotation
-from minimal_graspqp.visualization import create_initialization_figure
+from minimal_graspqp.visualization import publish_initialization_viser
 
 
 def build_primitive(args):
@@ -33,8 +33,9 @@ def main():
     parser.add_argument("--distance-lower", type=float, default=0.08)
     parser.add_argument("--distance-upper", type=float, default=0.12)
     parser.add_argument("--device", default="cpu")
-    parser.add_argument("--output", default="shadow_hand_initialization.html")
-    parser.add_argument("--show", action="store_true")
+    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument("--duration", type=float, default=0.0)
     parser.add_argument("--palm-down", action="store_true", help="Bias initialization around a palm-down wrist orientation.")
     parser.add_argument("--fingertips-only", action="store_true", help="Restrict contact candidates to fingertip distal links only.")
     args = parser.parse_args()
@@ -53,13 +54,21 @@ def main():
         num_contacts=args.num_contacts,
         base_wrist_rotation=base_wrist_rotation,
     )
-    figure = create_initialization_figure(hand_model, primitive, grasp_state, max_samples=args.batch_size)
-    output_path = Path(args.output)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    figure.write_html(str(output_path))
-    print(f"Wrote initialization visualization to {output_path}")
-    if args.show:
-        figure.show()
+    server = publish_initialization_viser(
+        hand_model,
+        primitive,
+        grasp_state,
+        host=args.host,
+        port=args.port,
+    )
+    print("Viser initialization visualization ready.")
+    print(f"Open this URL in your browser: http://localhost:{args.port}")
+    if args.duration > 0:
+        time.sleep(args.duration)
+        server.stop()
+        return
+    while True:
+        time.sleep(1.0)
 
 
 if __name__ == "__main__":

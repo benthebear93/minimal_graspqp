@@ -8,7 +8,7 @@ from minimal_graspqp.hands import ShadowHandModel
 from minimal_graspqp.init import initialize_grasps_for_primitive
 from minimal_graspqp.objects import Box, Cylinder, MeshObject, Sphere
 from minimal_graspqp.rotation import palm_down_rotation
-from minimal_graspqp.visualization import publish_initialization_meshcat
+from minimal_graspqp.visualization import publish_initialization_viser
 
 
 def build_object(args):
@@ -28,7 +28,7 @@ def build_object(args):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Visualize initialized Shadow Hand grasp candidates in MeshCat.")
+    parser = argparse.ArgumentParser(description="Visualize initialized Shadow Hand grasp candidates in viser.")
     parser.add_argument("--primitive", choices=["sphere", "cylinder", "box"], default="sphere")
     parser.add_argument("--mesh-path", default=None, help="Optional direct path to a mesh object file.")
     parser.add_argument("--object-root", default=None, help="Optional root directory for object-code lookup.")
@@ -46,6 +46,8 @@ def main():
     parser.add_argument("--distance-upper", type=float, default=0.12)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--spacing", type=float, default=0.25, help="Scene spacing between samples when batch-size > 1.")
+    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--duration", type=float, default=0.0, help="If >0, keep the process alive for that many seconds. Default 0 keeps it alive until Ctrl+C.")
     parser.add_argument("--palm-down", action="store_true")
     parser.add_argument("--fingertips-only", action="store_true", help="Restrict contact candidates to fingertip distal links only.")
@@ -65,11 +67,19 @@ def main():
         num_contacts=args.num_contacts,
         base_wrist_rotation=base_wrist_rotation,
     )
-    vis = publish_initialization_meshcat(hand_model, obj, grasp_state, spacing=args.spacing)
-    print("MeshCat initialization visualization ready.")
-    print(f"Open this URL in your browser: {vis.url()}")
+    server = publish_initialization_viser(
+        hand_model,
+        obj,
+        grasp_state,
+        spacing=args.spacing,
+        host=args.host,
+        port=args.port,
+    )
+    print("Viser initialization visualization ready.")
+    print(f"Open this URL in your browser: http://localhost:{args.port}")
     if args.duration > 0:
         time.sleep(args.duration)
+        server.stop()
         return
     while True:
         time.sleep(1.0)

@@ -91,6 +91,27 @@ Acceptance:
 - forward kinematics returns valid link poses and contact points
 - the loaded Shadow Hand contact candidate set is materially larger than one point per link for the provided asset pack
 
+### FR-1.1. Shadow Hand Contact Candidate Editing
+
+The system shall provide a local manual-edit path for Shadow Hand contact candidates.
+
+Requirements:
+
+- expose each contact candidate with a stable global index for inspection and editing
+- support per-index local-position overrides without modifying the original sampled contact-candidate definition file
+- support disabling individual contact candidate indices without renumbering the remaining indices
+- load contact-candidate overrides and disabled-index masks as optional external metadata layers
+- ensure disabled contact candidates are excluded consistently from visualization, initialization, and optimization paths when the mask is enabled
+- provide a local interactive editor for manual inspection and adjustment of contact candidates
+- the editor should support point selection in 3D and direct manipulation of the selected candidate position
+
+Acceptance:
+
+- a user can inspect a specific contact-candidate index and its owning link
+- a user can move a selected contact candidate and save the override to a local metadata file
+- a user can disable and re-enable a contact-candidate index without changing other global indices
+- the resulting override/mask files can be reapplied in a later session
+
 ### FR-2. Primitive Object Support
 
 The system shall support a minimal object set for early-stage development.
@@ -332,13 +353,15 @@ Requirements:
 
 Preferred implementation:
 
-- a simple Plotly-based local script
+- a simple viser-based local script
 
 Acceptance:
 
 - a user can run one script locally and visually inspect the hand-object configuration
 - the visualization works for at least sphere, cylinder, and box primitives
 - the visualization can be used before full optimization is implemented
+- for Shadow Hand contact-candidate editing, the visualization should support
+  selecting a displayed candidate point and highlighting the currently edited index
 
 ## 7. Non-Functional Requirements
 
@@ -429,7 +452,7 @@ The first implementation shall depend on:
 
 The following should remain optional:
 
-- plotly
+- viser
 - matplotlib
 - wandb
 - rtree

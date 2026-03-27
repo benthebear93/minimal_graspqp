@@ -14,7 +14,7 @@ The package currently covers:
 - differentiable force-closure QP evaluation
 - grasp energy terms
 - MALA and MALA* optimization
-- Plotly and MeshCat visualization
+- viser visualization
 
 .. toctree::
    :maxdepth: 2

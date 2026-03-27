@@ -1,15 +1,18 @@
 import pytest
 
-plotly = pytest.importorskip("plotly.graph_objects")
+pytest.importorskip("viser")
 
 from minimal_graspqp.hands import ShadowHandModel
 from minimal_graspqp.objects import Sphere
-from minimal_graspqp.visualization import create_shadow_hand_primitive_figure
+from minimal_graspqp.visualization import publish_shadow_hand_primitive_viser
 
 
-def test_create_shadow_hand_primitive_figure():
+def test_publish_shadow_hand_primitive_viser():
     hand_model = ShadowHandModel.create(device="cpu")
-    figure = create_shadow_hand_primitive_figure(hand_model, Sphere(radius=0.05))
-    assert isinstance(figure, plotly.Figure)
-    assert len(figure.data) >= 3
-
+    joint_values = hand_model.default_joint_state(batch_size=1)
+    server = publish_shadow_hand_primitive_viser(hand_model, Sphere(radius=0.05), joint_values, port=8891)
+    assert server is not None
+    try:
+        server.stop()
+    except RuntimeError:
+        pass
