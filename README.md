@@ -113,6 +113,11 @@ uv sync --extra docs
 uv run sphinx-build -b html docs docs/_build/html
 ```
 
+Deployment options:
+
+- GitHub Pages via `.github/workflows/docs.yml`
+- Read the Docs via `.readthedocs.yaml`
+
 ## Run
 
 ### 1. Static Visualization

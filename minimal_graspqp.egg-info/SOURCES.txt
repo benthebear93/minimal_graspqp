@@ -2,6 +2,7 @@ README.md
 pyproject.toml
 minimal_graspqp/__init__.py
 minimal_graspqp/assets.py
+minimal_graspqp/rotation.py
 minimal_graspqp/state.py
 minimal_graspqp.egg-info/PKG-INFO
 minimal_graspqp.egg-info/SOURCES.txt
