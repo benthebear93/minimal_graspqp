@@ -19,6 +19,7 @@ def main():
         default="/home/haegu/mj_sim/assets/syringe/assets/syringe.obj",
         help="Path to a mesh object file.",
     )
+    parser.add_argument("--mesh-scale", type=float, default=1.0)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--batch-size", type=int, default=6)
     parser.add_argument("--num-contacts", type=int, default=4)
@@ -28,7 +29,7 @@ def main():
     args = parser.parse_args()
 
     hand_model = ShadowHandModel.create(device=args.device)
-    mesh_object = MeshObject(Path(args.mesh_path))
+    mesh_object = MeshObject(Path(args.mesh_path), scale=args.mesh_scale)
     base_rotation = None
     if args.palm_down:
         base_rotation = palm_down_rotation(dtype=hand_model.dtype, device=hand_model.device)

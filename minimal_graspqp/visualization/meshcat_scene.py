@@ -106,6 +106,54 @@ def publish_shadow_hand_primitive_meshcat(
     return vis
 
 
+def publish_initialization_meshcat(
+    hand_model: ShadowHandModel,
+    primitive: Sphere | Cylinder | Box | MeshObject,
+    state: GraspState,
+    spacing: float = 0.25,
+):
+    meshcat, _, _ = _ensure_meshcat()
+    vis = meshcat.Visualizer().open()
+    vis.delete()
+    _configure_viewer(vis)
+
+    visual_specs = _load_visual_specs(hand_model)
+    cache: dict[Path, tm.Trimesh] = {}
+
+    for sample_index in range(state.batch_size):
+        sample_offset = np.array([sample_index * spacing, 0.0, 0.0], dtype=np.float32)
+
+        primitive_mesh = _primitive_mesh(primitive).copy()
+        primitive_mesh.apply_translation(sample_offset)
+        _publish_trimesh(vis, f"scene/sample_{sample_index}/object", primitive_mesh, color="lightgreen", opacity=0.45)
+
+        joint_values = state.joint_values[sample_index : sample_index + 1].to(device=hand_model.device, dtype=hand_model.dtype)
+        fk = hand_model.forward_kinematics(joint_values)
+
+        wrist_transform = np.eye(4)
+        wrist_transform[:3, :3] = state.wrist_rotation[sample_index].detach().cpu().numpy()
+        wrist_transform[:3, 3] = state.wrist_translation[sample_index].detach().cpu().numpy() + sample_offset
+
+        for spec in visual_specs:
+            mesh = _mesh_cache_load(spec.mesh_path, cache).copy()
+            mesh.apply_scale(spec.scale)
+            mesh.apply_transform(_make_transform(spec.origin_xyz, spec.origin_rpy))
+            link_transform = fk[spec.link_name][0].detach().cpu().numpy()
+            mesh.apply_transform(wrist_transform @ link_transform)
+            _publish_trimesh(vis, f"scene/sample_{sample_index}/hand/{spec.link_name}", mesh, color="lightblue", opacity=0.75)
+
+        contacts = hand_model.contact_candidates_world(
+            state.joint_values[sample_index : sample_index + 1],
+            indices=state.contact_indices[sample_index : sample_index + 1],
+            wrist_translation=state.wrist_translation[sample_index : sample_index + 1]
+            + state.wrist_translation.new_tensor(sample_offset).unsqueeze(0),
+            wrist_rotation=state.wrist_rotation[sample_index : sample_index + 1],
+        )[0].detach().cpu().numpy()
+        _publish_points(vis, f"scene/sample_{sample_index}/contacts", contacts, color="crimson")
+
+    return vis
+
+
 def publish_optimization_result_meshcat(
     hand_model: ShadowHandModel,
     primitive: Sphere | Cylinder | Box | MeshObject,

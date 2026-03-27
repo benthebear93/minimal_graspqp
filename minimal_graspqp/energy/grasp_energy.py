@@ -7,10 +7,14 @@ import torch
 from minimal_graspqp.metrics import ForceClosureQP
 
 
-def compute_joint_limit_penalty(joint_values: torch.Tensor, lower: torch.Tensor, upper: torch.Tensor) -> torch.Tensor:
+def compute_joint_limit_penalty(
+    joint_values: torch.Tensor, lower: torch.Tensor, upper: torch.Tensor
+) -> torch.Tensor:
     lower = lower.to(device=joint_values.device, dtype=joint_values.dtype)
     upper = upper.to(device=joint_values.device, dtype=joint_values.dtype)
-    return (lower - joint_values).clamp_min(0.0).sum(dim=-1) + (joint_values - upper).clamp_min(0.0).sum(dim=-1)
+    return (lower - joint_values).clamp_min(0.0).sum(dim=-1) + (
+        joint_values - upper
+    ).clamp_min(0.0).sum(dim=-1)
 
 
 def compute_self_penetration_energy(
@@ -23,7 +27,9 @@ def compute_self_penetration_energy(
     thresholds = sphere_radii.unsqueeze(2) + sphere_radii.unsqueeze(1)
     overlap = (thresholds - distances).clamp_min(0.0)
     batch_size, num_spheres, _ = sphere_centers.shape
-    mask = torch.ones((num_spheres, num_spheres), dtype=torch.bool, device=sphere_centers.device)
+    mask = torch.ones(
+        (num_spheres, num_spheres), dtype=torch.bool, device=sphere_centers.device
+    )
     mask.fill_diagonal_(False)
     for i in range(num_spheres):
         for j in range(num_spheres):
@@ -44,8 +50,12 @@ def _surface_points_for_penetration(
         setattr(primitive, "_penetration_surface_cache", cache)
     if num_samples not in cache:
         if not hasattr(primitive, "sample_surface"):
-            raise ValueError("Object must provide sample_surface(...) for penetration evaluation.")
-        points, _ = primitive.sample_surface(num_samples, dtype=torch.float32, device=torch.device("cpu"))
+            raise ValueError(
+                "Object must provide sample_surface(...) for penetration evaluation."
+            )
+        points, _ = primitive.sample_surface(
+            num_samples, dtype=torch.float32, device=torch.device("cpu")
+        )
         cache[num_samples] = points.detach().cpu()
     return cache[num_samples].to(device=device, dtype=dtype)
 
@@ -70,36 +80,60 @@ def compute_grasp_energy(
     )
     signed_distance = primitive.signed_distance(contact_points)
     contact_normals = primitive.normals(contact_points)
-    cog = torch.tensor(primitive.center, dtype=contact_points.dtype, device=contact_points.device).unsqueeze(0).expand(contact_points.shape[0], -1)
+    cog = (
+        torch.tensor(
+            primitive.center, dtype=contact_points.dtype, device=contact_points.device
+        )
+        .unsqueeze(0)
+        .expand(contact_points.shape[0], -1)
+    )
 
     e_dis = signed_distance.abs().sum(dim=-1)
     e_fc = force_closure_metric.evaluate(contact_points, contact_normals, cog)
 
-    object_surface_points = _surface_points_for_penetration(
-        primitive,
-        num_samples=num_penetration_samples,
-        dtype=contact_points.dtype,
-        device=contact_points.device,
-    ).unsqueeze(0).expand(contact_points.shape[0], -1, -1)
-    e_pen = hand_model.cal_distance(
-        object_surface_points,
-        grasp_state.joint_values,
-        wrist_translation=grasp_state.wrist_translation,
-        wrist_rotation=grasp_state.wrist_rotation,
-    ).clamp_min(0.0).sum(dim=-1)
-
-    penetration_centers, penetration_radii, link_names = hand_model.penetration_spheres_world(
-        grasp_state.joint_values,
-        wrist_translation=grasp_state.wrist_translation,
-        wrist_rotation=grasp_state.wrist_rotation,
+    object_surface_points = (
+        _surface_points_for_penetration(
+            primitive,
+            num_samples=num_penetration_samples,
+            dtype=contact_points.dtype,
+            device=contact_points.device,
+        )
+        .unsqueeze(0)
+        .expand(contact_points.shape[0], -1, -1)
     )
-    e_spen = compute_self_penetration_energy(penetration_centers, penetration_radii, link_names)
+    e_pen = (
+        hand_model.cal_distance(
+            object_surface_points,
+            grasp_state.joint_values,
+            wrist_translation=grasp_state.wrist_translation,
+            wrist_rotation=grasp_state.wrist_rotation,
+        )
+        .clamp_min(0.0)
+        .sum(dim=-1)
+    )
+
+    penetration_centers, penetration_radii, link_names = (
+        hand_model.penetration_spheres_world(
+            grasp_state.joint_values,
+            wrist_translation=grasp_state.wrist_translation,
+            wrist_rotation=grasp_state.wrist_rotation,
+        )
+    )
+    e_spen = compute_self_penetration_energy(
+        penetration_centers, penetration_radii, link_names
+    )
     e_joint = compute_joint_limit_penalty(
         grasp_state.joint_values,
         hand_model.metadata.joint_lower,
         hand_model.metadata.joint_upper,
     )
-    total = w_fc * e_fc + w_dis * e_dis + w_pen * e_pen + w_spen * e_spen + w_joint * e_joint
+    total = (
+        w_fc * e_fc
+        + w_dis * e_dis
+        + w_pen * e_pen
+        + w_spen * e_spen
+        + w_joint * e_joint
+    )
 
     return {
         "contact_points": contact_points,

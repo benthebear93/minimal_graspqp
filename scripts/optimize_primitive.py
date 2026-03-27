@@ -16,11 +16,11 @@ from minimal_graspqp.rotation import palm_down_rotation
 
 def build_object(args):
     if args.mesh_path:
-        return MeshObject(Path(args.mesh_path))
+        return MeshObject(Path(args.mesh_path), scale=args.mesh_scale)
     if args.object_code:
         if not args.object_root:
             raise ValueError("--object-root is required when --object-code is used.")
-        return MeshObject.from_code(args.object_root, args.object_code)
+        return MeshObject.from_code(args.object_root, args.object_code, scale=args.mesh_scale)
     if args.primitive == "sphere":
         return Sphere(radius=args.radius)
     if args.primitive == "cylinder":
@@ -47,11 +47,13 @@ def object_metadata(args, obj):
                 "object_code": args.object_code,
                 "object_root": str(Path(args.object_root).resolve()) if args.object_root else None,
                 "mesh_path": str(obj.mesh_path),
+                "scale": float(args.mesh_scale),
                 "center": list(obj.center),
             }
         return {
             "type": "mesh",
             "mesh_path": str(obj.mesh_path),
+            "scale": float(args.mesh_scale),
             "center": list(obj.center),
         }
     if args.primitive == "sphere":
@@ -78,6 +80,7 @@ def main():
     parser.add_argument("--mesh-path", default=None, help="Optional direct path to a mesh object file.")
     parser.add_argument("--object-root", default=None, help="Optional root directory for object-code lookup.")
     parser.add_argument("--object-code", default=None, help="Optional object code resolved as <object-root>/<object-code>/coacd/*.obj.")
+    parser.add_argument("--mesh-scale", type=float, default=1.0, help="Uniform scale applied when loading a mesh object.")
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--num-steps", type=int, default=200)
     parser.add_argument("--num-contacts", type=int, default=4)
