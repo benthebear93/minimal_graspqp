@@ -1,0 +1,36 @@
+from pathlib import Path
+
+import torch
+
+from minimal_graspqp.hands import ShadowHandModel
+from minimal_graspqp.init import initialize_grasps_for_primitive
+from minimal_graspqp.objects import MeshObject
+
+
+MESH_PATH = Path("/home/haegu/mj_sim/assets/syringe/assets/syringe.obj")
+
+
+def test_mesh_object_initialization_smoke():
+    if not MESH_PATH.exists():
+        return
+    hand_model = ShadowHandModel.create(device="cpu")
+    mesh_object = MeshObject(MESH_PATH)
+    grasp_state = initialize_grasps_for_primitive(hand_model, mesh_object, batch_size=2, num_contacts=4)
+    assert grasp_state.joint_values.shape == (2, 24)
+    assert grasp_state.wrist_translation.shape == (2, 3)
+    assert grasp_state.wrist_rotation.shape == (2, 3, 3)
+    assert grasp_state.contact_indices.shape == (2, 4)
+    assert torch.isfinite(grasp_state.wrist_translation).all()
+
+
+def test_mesh_object_signed_distance_and_normals_shapes():
+    if not MESH_PATH.exists():
+        return
+    mesh_object = MeshObject(MESH_PATH)
+    points = torch.tensor([[[0.0, 0.0, 0.0], [0.01, 0.0, 0.0]]], dtype=torch.float32)
+    sdf = mesh_object.signed_distance(points)
+    normals = mesh_object.normals(points)
+    assert sdf.shape == (1, 2)
+    assert normals.shape == (1, 2, 3)
+    assert torch.isfinite(sdf).all()
+    assert torch.isfinite(normals).all()

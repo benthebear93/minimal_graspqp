@@ -7,7 +7,7 @@ import numpy as np
 import trimesh as tm
 
 from minimal_graspqp.hands import ShadowHandModel
-from minimal_graspqp.objects import Box, Cylinder, Sphere
+from minimal_graspqp.objects import Box, Cylinder, MeshObject, Sphere
 from minimal_graspqp.state import GraspState
 from minimal_graspqp.visualization.plotly_scene import (
     _load_visual_specs,
@@ -61,7 +61,7 @@ def _configure_viewer(vis):
 
 def publish_shadow_hand_primitive_meshcat(
     hand_model: ShadowHandModel,
-    primitive: Sphere | Cylinder | Box,
+    primitive: Sphere | Cylinder | Box | MeshObject,
     joint_values,
     contact_indices=None,
     wrist_translation=None,
@@ -108,7 +108,7 @@ def publish_shadow_hand_primitive_meshcat(
 
 def publish_optimization_result_meshcat(
     hand_model: ShadowHandModel,
-    primitive: Sphere | Cylinder | Box,
+    primitive: Sphere | Cylinder | Box | MeshObject,
     initial_state: GraspState,
     final_state: GraspState,
     sample_index: int = 0,

@@ -11,7 +11,7 @@ import trimesh as tm
 from transforms3d.euler import euler2mat
 
 from minimal_graspqp.hands import ShadowHandModel
-from minimal_graspqp.objects import Box, Cylinder, Sphere
+from minimal_graspqp.objects import Box, Cylinder, MeshObject, Sphere
 from minimal_graspqp.state import GraspState
 
 
@@ -87,7 +87,7 @@ def _transform_mesh(mesh: tm.Trimesh, transform: np.ndarray) -> tm.Trimesh:
     return mesh_cp
 
 
-def _primitive_mesh(primitive: Sphere | Cylinder | Box) -> tm.Trimesh:
+def _primitive_mesh(primitive: Sphere | Cylinder | Box | MeshObject) -> tm.Trimesh:
     if isinstance(primitive, Sphere):
         mesh = tm.creation.icosphere(subdivisions=3, radius=primitive.radius)
         mesh.apply_translation(np.array(primitive.center))
@@ -100,12 +100,14 @@ def _primitive_mesh(primitive: Sphere | Cylinder | Box) -> tm.Trimesh:
         mesh = tm.creation.box(extents=2.0 * np.array(primitive.half_extents))
         mesh.apply_translation(np.array(primitive.center))
         return mesh
-    raise TypeError(f"Unsupported primitive type: {type(primitive).__name__}")
+    if isinstance(primitive, MeshObject):
+        return primitive.mesh.copy()
+    raise TypeError(f"Unsupported object type: {type(primitive).__name__}")
 
 
 def create_shadow_hand_primitive_figure(
     hand_model: ShadowHandModel,
-    primitive: Sphere | Cylinder | Box,
+    primitive: Sphere | Cylinder | Box | MeshObject,
     joint_values: torch.Tensor | None = None,
     contact_indices: torch.Tensor | None = None,
     wrist_translation: torch.Tensor | None = None,
@@ -156,7 +158,7 @@ def create_shadow_hand_primitive_figure(
     figure.update_layout(
         scene={"aspectmode": "data"},
         margin={"l": 0, "r": 0, "t": 30, "b": 0},
-        title="Shadow Hand and primitive object",
+        title="Shadow Hand and object",
         showlegend=False,
     )
     return figure
@@ -164,7 +166,7 @@ def create_shadow_hand_primitive_figure(
 
 def create_initialization_figure(
     hand_model: ShadowHandModel,
-    primitive: Sphere | Cylinder | Box,
+    primitive: Sphere | Cylinder | Box | MeshObject,
     grasp_state: GraspState,
     max_samples: int = 6,
 ) -> go.Figure:
@@ -228,7 +230,7 @@ def create_initialization_figure(
 
 def create_optimization_result_figure(
     hand_model: ShadowHandModel,
-    primitive: Sphere | Cylinder | Box,
+    primitive: Sphere | Cylinder | Box | MeshObject,
     initial_state: GraspState,
     final_state: GraspState,
     sample_index: int = 0,

@@ -9,7 +9,7 @@ description = "Minimal GraspQP reproduction focused on Shadow Hand and primitive
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
 dependencies = [
-  "torch>=2.5,<2.7",
+  "torch>=2.4,<2.5",
   "numpy>=1.26,<2.0",
   "scipy>=1.15,<1.16",
   "trimesh>=4.8,<5.0",
@@ -33,6 +33,9 @@ viz = [
 ]
 meshcat = [
   "meshcat>=0.3,<0.4",
+]
+mesh = [
+  "rtree>=1.4,<2.0",
 ]
 docs = [
   "sphinx>=8.0,<9.0",

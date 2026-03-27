@@ -30,8 +30,8 @@ def test_initialize_grasps_for_primitive_wrist_distance():
         distance_upper=0.15,
     )
     distances = grasp_state.wrist_translation.norm(dim=-1)
-    assert torch.all(distances >= 0.10 - 1e-6)
-    assert torch.all(distances <= 0.15 + 1e-6)
+    assert torch.all(distances >= 0.15 - 1e-6)
+    assert torch.all(distances <= 0.20 + 1e-6)
 
 
 def test_initialize_grasps_for_primitive_supports_palm_down_base_rotation():

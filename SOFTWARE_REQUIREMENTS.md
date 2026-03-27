@@ -115,6 +115,27 @@ Acceptance:
 - each primitive can be instantiated with configurable size and pose
 - the system can compute signed distance and surface normal for arbitrary query points
 
+### FR-2.1. Optional Mesh / Convex-Hull Object Support
+
+The system may additionally support a small number of real mesh objects for
+initialization and visualization experiments, without expanding to the full
+original dataset pipeline.
+
+Requirements:
+
+- a mesh object may be loaded directly from a local mesh path
+- a mesh object may optionally be resolved from an original-style object code
+  layout such as ``<data_root>/<object_code>/coacd/remeshed.obj``
+- initialization for mesh objects should prefer convex-hull-based surface
+  sampling similar to the original repository
+- if full differentiable mesh SDF is unavailable, a convex-hull approximation is
+  acceptable for initialization and smoke testing
+
+Acceptance:
+
+- at least one local mesh object can be loaded and visualized with the Shadow Hand
+- convex-hull-based initialization produces valid grasp batches for that object
+
 ### FR-3. Contact Geometry Evaluation
 
 The system shall evaluate the relationship between hand contacts and object surface.
@@ -251,6 +272,12 @@ Preferred next step:
 - convex-hull-inspired initialization similar to the original codebase
 - object-facing filtering or similarly constrained active-contact selection using the richer candidate set
 
+Optional extension:
+
+- for real mesh objects, initialization should use convex-hull surface samples
+  and outward hull normals in the same role that the original repository uses
+  for coarse pose seeding
+
 Acceptance:
 
 - a batch of initial grasps can be generated without invalid tensor states
@@ -361,7 +388,7 @@ minimal_graspqp/
 Expected module responsibilities:
 
 - `hands/`: Shadow Hand loading, FK, contact points, self-penetration helpers
-- `objects/`: primitive objects and SDF queries
+- `objects/`: primitive objects, optional mesh objects, and SDF queries
 - `energy/`: distance, joint, penetration, and total energy composition
 - `metrics/`: force-closure wrench construction and metric computation
 - `solvers/`: QP layer
@@ -389,6 +416,7 @@ The following should remain optional:
 - plotly
 - matplotlib
 - wandb
+- rtree
 - pytorch3d
 - TorchSDF
 - warp
@@ -398,6 +426,32 @@ Reduction guideline:
 
 - If primitive analytic SDFs are implemented directly, `TorchSDF`, `warp`, and `kaolin` should not be mandatory.
 - If primitive surface sampling is implemented without mesh FPS, `pytorch3d` should not be mandatory.
+- If mesh-object proximity uses `trimesh.nearest` or signed-distance queries,
+  `rtree` becomes effectively required for that path.
+
+Object-model dependency tiers:
+
+- Primitive-only path:
+  - `torch`
+  - `numpy`
+  - `scipy`
+  - `trimesh`
+- Convex-hull mesh initialization path:
+  - primitive-only dependencies
+  - `rtree` if `trimesh` nearest-surface queries are used directly
+- Original-style differentiable mesh SDF path:
+  - primitive-only dependencies
+  - `pytorch3d`
+  - one SDF backend: `TorchSDF`, `warp`, or `kaolin`
+  - `rtree` for some proximity and nearest-surface utilities
+
+Current local-environment note:
+
+- the current workspace does not have `rtree`, `pytorch3d`, `TorchSDF`, `warp`,
+  or `kaolin` installed
+- therefore primitive analytic objects are the only fully supported path today,
+  and mesh-object support should be treated as optional or approximate until
+  those dependencies are added
 
 ## 10. Data and Asset Requirements
 
@@ -411,6 +465,10 @@ The system shall include or reference only the Shadow Hand assets required for t
 Primitive object support shall not require a large external dataset.
 
 The primitive test set shall be small, local, and version-controlled if possible.
+
+Optional mesh-object experiments may reference one or a few local meshes outside
+the repository, but they shall not become a hard requirement for the minimal
+pipeline.
 
 ## 11. Testing Requirements
 
@@ -457,13 +515,15 @@ The first usable milestone of `minimal_graspqp` shall include:
 
 1. A Shadow Hand model loader.
 2. Primitive object models for sphere, cylinder, and box.
-3. A differentiable force-closure metric with QP backend.
-4. A total grasp energy implementation.
-5. A MALA* optimizer implementation.
-6. A script that runs batch optimization on a primitive object.
-7. Basic tests for math and optimization.
-8. A README documenting installation and usage.
-9. A local visualization script for manual inspection of primitive-object scenes.
+3. Optional local mesh-object smoke support is acceptable, but not required for
+   the first milestone.
+4. A differentiable force-closure metric with QP backend.
+5. A total grasp energy implementation.
+6. A MALA* optimizer implementation.
+7. A script that runs batch optimization on a primitive object.
+8. Basic tests for math and optimization.
+9. A README documenting installation and usage.
+10. A local visualization script for manual inspection of primitive-object scenes.
 
 ## 13. Recommended Development Order
 

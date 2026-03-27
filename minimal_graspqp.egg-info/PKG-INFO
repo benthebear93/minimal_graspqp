@@ -4,7 +4,7 @@ Version: 0.1.0
 Summary: Minimal GraspQP reproduction focused on Shadow Hand and primitive objects.
 Requires-Python: <3.13,>=3.10
 Description-Content-Type: text/markdown
-Requires-Dist: torch<2.7,>=2.5
+Requires-Dist: torch<2.5,>=2.4
 Requires-Dist: numpy<2.0,>=1.26
 Requires-Dist: scipy<1.16,>=1.15
 Requires-Dist: trimesh<5.0,>=4.8
@@ -23,6 +23,8 @@ Requires-Dist: matplotlib<3.11,>=3.10; extra == "viz"
 Requires-Dist: plotly<7.0,>=6.0; extra == "viz"
 Provides-Extra: meshcat
 Requires-Dist: meshcat<0.4,>=0.3; extra == "meshcat"
+Provides-Extra: mesh
+Requires-Dist: rtree<2.0,>=1.4; extra == "mesh"
 Provides-Extra: docs
 Requires-Dist: sphinx<9.0,>=8.0; extra == "docs"
 Requires-Dist: furo>=2024.8.6; extra == "docs"

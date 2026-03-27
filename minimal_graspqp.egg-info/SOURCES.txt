@@ -19,6 +19,7 @@ minimal_graspqp/metrics/__init__.py
 minimal_graspqp/metrics/force_closure.py
 minimal_graspqp/metrics/wrench.py
 minimal_graspqp/objects/__init__.py
+minimal_graspqp/objects/mesh_object.py
 minimal_graspqp/objects/primitives.py
 minimal_graspqp/optim/__init__.py
 minimal_graspqp/optim/mala.py
@@ -31,6 +32,7 @@ tests/test_energy.py
 tests/test_force_closure.py
 tests/test_initialization.py
 tests/test_initialization_visualization.py
+tests/test_mesh_object.py
 tests/test_meshcat_visualization.py
 tests/test_optimization_visualization.py
 tests/test_optimizer.py
