@@ -43,6 +43,7 @@ Useful commands:
 uv lock
 uv run pytest -q
 uv run python scripts/<script_name>.py
+uv run sphinx-build -b html docs docs/_build/html
 ```
 
 ## Repository Layout
@@ -96,6 +97,21 @@ Out of scope for this repo:
 - complex mesh-object benchmark suites
 - Isaac / simulator validation
 - full paper-scale hyperparameter reproduction
+
+## Documentation
+
+Sphinx documentation lives under `docs/` and is organized into:
+
+- overview and core concepts
+- task-oriented guides
+- API reference by package
+
+Build it with:
+
+```bash
+uv sync --extra docs
+uv run sphinx-build -b html docs docs/_build/html
+```
 
 ## Run
 

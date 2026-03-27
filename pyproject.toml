@@ -34,6 +34,10 @@ viz = [
 meshcat = [
   "meshcat>=0.3,<0.4",
 ]
+docs = [
+  "sphinx>=8.0,<9.0",
+  "furo>=2024.8.6",
+]
 
 [tool.uv]
 package = true
