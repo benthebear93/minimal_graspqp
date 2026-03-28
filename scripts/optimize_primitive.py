@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 from pathlib import Path
 
 import torch
 
 from minimal_graspqp.energy import compute_grasp_energy
 from minimal_graspqp.hands import ShadowHandModel
+from minimal_graspqp.hands import shadow_hand as shadow_hand_module
 from minimal_graspqp.init import initialize_grasps_for_primitive
 from minimal_graspqp.metrics import ForceClosureQP
+from minimal_graspqp.objects import mesh_object as mesh_object_module
 from minimal_graspqp.objects import Box, Cylinder, MeshObject, Sphere
 from minimal_graspqp.optim import MalaConfig, MalaOptimizer
 from minimal_graspqp.rotation import palm_down_rotation
@@ -74,6 +77,26 @@ def object_metadata(args, obj):
     raise ValueError(f"Unsupported primitive: {args.primitive}")
 
 
+def resolve_device(device_arg: str) -> str:
+    if device_arg != "auto":
+        return device_arg
+    return "cuda" if torch.cuda.is_available() else "cpu"
+
+
+def print_backend_status() -> None:
+    torchsdf_installed = importlib.util.find_spec("torchsdf") is not None
+    pytorch3d_installed = importlib.util.find_spec("pytorch3d") is not None
+    rtree_installed = importlib.util.find_spec("rtree") is not None
+    print(
+        "Backends: "
+        f"torchsdf_installed={torchsdf_installed} "
+        f"pytorch3d_installed={pytorch3d_installed} "
+        f"rtree_installed={rtree_installed} "
+        f"hand_with_torchsdf={shadow_hand_module.with_torchsdf} "
+        f"mesh_with_torchsdf={mesh_object_module.with_torchsdf}"
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description="Run minimal GraspQP optimization on a primitive or mesh object.")
     parser.add_argument("--primitive", choices=["sphere", "cylinder", "box"], default="sphere")
@@ -90,7 +113,7 @@ def main():
     parser.add_argument("--half-x", type=float, default=0.04)
     parser.add_argument("--half-y", type=float, default=0.04)
     parser.add_argument("--half-z", type=float, default=0.04)
-    parser.add_argument("--device", default="cpu")
+    parser.add_argument("--device", default="auto", help="Device to use: auto, cpu, or cuda. Default auto prefers CUDA when available.")
     parser.add_argument("--mala-star", action="store_true")
     parser.add_argument("--step-size", type=float, default=5e-3)
     parser.add_argument("--noise-scale", type=float, default=1e-3)
@@ -102,12 +125,17 @@ def main():
     parser.add_argument("--stepsize-period", type=int, default=50)
     parser.add_argument("--annealing-period", type=int, default=30)
     parser.add_argument("--mu", type=float, default=0.98)
+    parser.add_argument("--log-every", type=int, default=0, help="Print optimization progress every N steps. Default 0 disables per-step progress logs.")
+    parser.add_argument("--profile-every", type=int, default=0, help="Print coarse per-step timing every N steps. Default 0 disables timing logs.")
     parser.add_argument("--output", default="outputs/primitive_optimization.pt")
     parser.add_argument("--palm-down", action="store_true", help="Bias initialization around a palm-down wrist orientation.")
     parser.add_argument("--fingertips-only", action="store_true", help="Restrict contact candidates to fingertip distal links only.")
     args = parser.parse_args()
+    args.device = resolve_device(args.device)
 
     torch.manual_seed(args.seed)
+    print(f"Using device: {args.device}")
+    print_backend_status()
     hand_model = ShadowHandModel.create(device=args.device, fingertips_only=args.fingertips_only)
     primitive = build_object(args)
     base_wrist_rotation = None
@@ -135,6 +163,8 @@ def main():
             reset_interval=args.reset_interval,
             z_score_threshold=args.z_score_threshold,
             use_mala_star=args.mala_star,
+            log_every=args.log_every,
+            profile_every=args.profile_every,
         )
     )
 

@@ -244,3 +244,58 @@ def publish_optimization_result_viser(
     add_state("/initial", initial_state, color="royalblue", opacity=0.2)
     add_state("/final", final_state, color="darkorange", opacity=0.8)
     return server
+
+
+def publish_optimization_batch_viser(
+    hand_model: ShadowHandModel,
+    primitive: Sphere | Cylinder | Box | MeshObject,
+    initial_state: GraspState,
+    final_state: GraspState,
+    *,
+    spacing: float = 0.25,
+    row_spacing: float = 0.35,
+    host: str = "0.0.0.0",
+    port: int = 8080,
+) -> viser.ViserServer:
+    server = _new_server(host=host, port=port)
+
+    def add_state_row(
+        row_prefix: str,
+        state: GraspState,
+        *,
+        y_offset: float,
+        color: str,
+        opacity: float,
+    ) -> None:
+        for sample_index in range(state.batch_size):
+            sample_offset = np.array([sample_index * spacing, y_offset, 0.0], dtype=np.float32)
+            object_mesh = primitive_mesh(primitive).copy()
+            object_mesh.apply_translation(sample_offset)
+            _add_mesh(server, f"{row_prefix}/sample_{sample_index}/object", object_mesh, color="lightgreen", opacity=0.35)
+
+            joint_values = state.joint_values[sample_index : sample_index + 1].to(device=hand_model.device, dtype=hand_model.dtype)
+            wrist_translation = state.wrist_translation[sample_index : sample_index + 1].clone()
+            wrist_translation[:, 0] += spacing * sample_index
+            wrist_translation[:, 1] += y_offset
+            wrist_rotation = state.wrist_rotation[sample_index : sample_index + 1]
+            _render_hand_meshes(
+                server,
+                f"{row_prefix}/sample_{sample_index}/hand",
+                hand_model,
+                joint_values,
+                wrist_translation,
+                wrist_rotation,
+                color=color,
+                opacity=opacity,
+            )
+            contacts = hand_model.contact_candidates_world(
+                joint_values,
+                indices=state.contact_indices[sample_index : sample_index + 1],
+                wrist_translation=wrist_translation,
+                wrist_rotation=wrist_rotation,
+            )[0].detach().cpu().numpy()
+            _add_points(server, f"{row_prefix}/sample_{sample_index}/contacts", contacts, color=color)
+
+    add_state_row("/initial", initial_state, y_offset=0.0, color="royalblue", opacity=0.2)
+    add_state_row("/final", final_state, y_offset=row_spacing, color="darkorange", opacity=0.8)
+    return server

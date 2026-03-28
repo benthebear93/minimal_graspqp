@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import time
 
 import torch
 
@@ -48,6 +49,8 @@ class MalaConfig:
     reset_interval: int = 600
     z_score_threshold: float = 1.0
     use_mala_star: bool = False
+    log_every: int = 0
+    profile_every: int = 0
 
 
 @dataclass
@@ -67,6 +70,11 @@ class MalaOptimizer:
 
     def _energy(self, hand_model, primitive, state, metric):
         return compute_grasp_energy(hand_model, primitive, state, metric)["E_total"]
+
+    @staticmethod
+    def _sync_if_cuda(device: torch.device) -> None:
+        if device.type == "cuda":
+            torch.cuda.synchronize(device=device)
 
     def _make_differentiable_state(self, state: GraspState) -> GraspState:
         return GraspState(
@@ -153,11 +161,31 @@ class MalaOptimizer:
         best_energy = current_energy.clone()
 
         for step in range(self.config.num_steps):
+            device = current_state.joint_values.device
+            should_profile = self.config.profile_every and (
+                step == 0 or (step + 1) % self.config.profile_every == 0 or (step + 1) == self.config.num_steps
+            )
             diff_state = self._make_differentiable_state(current_state)
-            losses = compute_grasp_energy(hand_model, primitive, diff_state, metric)
+            if should_profile:
+                self._sync_if_cuda(device)
+                t0 = time.perf_counter()
+            losses = compute_grasp_energy(hand_model, primitive, diff_state, metric, profile=should_profile)
+            if should_profile:
+                self._sync_if_cuda(device)
+                t_loss = time.perf_counter()
             losses["E_total"].sum().backward()
+            if should_profile:
+                self._sync_if_cuda(device)
+                t_backward = time.perf_counter()
             proposal = self._propose(hand_model, diff_state)
-            proposal_energy = self._energy(hand_model, primitive, proposal, metric).detach()
+            if should_profile:
+                self._sync_if_cuda(device)
+                t_propose = time.perf_counter()
+            proposal_losses = compute_grasp_energy(hand_model, primitive, proposal, metric, profile=should_profile)
+            proposal_energy = proposal_losses["E_total"].detach()
+            if should_profile:
+                self._sync_if_cuda(device)
+                t_proposal_energy = time.perf_counter()
 
             temperature_vec = self._current_temperature().to(dtype=current_energy.dtype)
             z_score = None
@@ -214,5 +242,49 @@ class MalaOptimizer:
             history.energy_trace.append(current_energy.clone())
             history.accepted_trace.append(accept.clone())
             history.reset_trace.append(reset_mask.clone())
+            if self.config.log_every and (
+                step == 0 or (step + 1) % self.config.log_every == 0 or (step + 1) == self.config.num_steps
+            ):
+                mean_energy = current_energy.mean().item()
+                best_mean_energy = best_energy.mean().item()
+                accepted_count = int(accept.sum().item())
+                reset_count = int(reset_mask.sum().item())
+                print(
+                    f"[opt] step {step + 1}/{self.config.num_steps} "
+                    f"mean={mean_energy:.6f} "
+                    f"best_mean={best_mean_energy:.6f} "
+                    f"accepted={accepted_count}/{accept.numel()} "
+                    f"resets={reset_count}"
+                )
+            if should_profile:
+                loss_ms = (t_loss - t0) * 1e3
+                backward_ms = (t_backward - t_loss) * 1e3
+                propose_ms = (t_propose - t_backward) * 1e3
+                proposal_energy_ms = (t_proposal_energy - t_propose) * 1e3
+                print(
+                    f"[profile] step {step + 1}/{self.config.num_steps} "
+                    f"loss={loss_ms:.1f}ms "
+                    f"backward={backward_ms:.1f}ms "
+                    f"propose={propose_ms:.1f}ms "
+                    f"proposal_energy={proposal_energy_ms:.1f}ms"
+                )
+                loss_timings = losses.get("timings_ms", {})
+                if loss_timings:
+                    print(
+                        f"[profile:loss] step {step + 1}/{self.config.num_steps} "
+                        f"contacts_sdf_normals={loss_timings.get('contacts_sdf_normals', 0.0):.1f}ms "
+                        f"force_closure={loss_timings.get('force_closure', 0.0):.1f}ms "
+                        f"penetration={loss_timings.get('penetration', 0.0):.1f}ms "
+                        f"self_pen_joint={loss_timings.get('self_pen_joint', 0.0):.1f}ms"
+                    )
+                proposal_timings = proposal_losses.get("timings_ms", {})
+                if proposal_timings:
+                    print(
+                        f"[profile:proposal] step {step + 1}/{self.config.num_steps} "
+                        f"contacts_sdf_normals={proposal_timings.get('contacts_sdf_normals', 0.0):.1f}ms "
+                        f"force_closure={proposal_timings.get('force_closure', 0.0):.1f}ms "
+                        f"penetration={proposal_timings.get('penetration', 0.0):.1f}ms "
+                        f"self_pen_joint={proposal_timings.get('self_pen_joint', 0.0):.1f}ms"
+                    )
 
         return best_state, history

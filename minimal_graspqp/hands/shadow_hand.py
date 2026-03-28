@@ -101,6 +101,7 @@ class ShadowHandMetadata:
     penetration_points: dict[str, torch.Tensor]
     collision_vertices: dict[str, torch.Tensor]
     collision_faces: dict[str, torch.Tensor]
+    collision_primitives: dict[str, list[dict[str, object]]]
 
     @property
     def num_joints(self) -> int:
@@ -238,10 +239,14 @@ def _load_geometry_mesh(asset_dir: Path, geometry: ET.Element) -> tm.Trimesh:
     raise ValueError("Unsupported geometry node in Shadow Hand URDF.")
 
 
-def _load_collision_meshes(asset_dir: Path, urdf_path: Path) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
+def _load_collision_meshes(
+    asset_dir: Path,
+    urdf_path: Path,
+) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor], dict[str, list[dict[str, object]]]]:
     root = ET.fromstring(urdf_path.read_text())
     vertices_by_link: dict[str, torch.Tensor] = {}
     faces_by_link: dict[str, torch.Tensor] = {}
+    primitives_by_link: dict[str, list[dict[str, object]]] = {}
     for link in root.findall("link"):
         link_name = link.attrib["name"]
         elements = link.findall("collision")
@@ -251,13 +256,49 @@ def _load_collision_meshes(asset_dir: Path, urdf_path: Path) -> tuple[dict[str, 
             continue
         link_vertices = []
         link_faces = []
+        link_primitives = []
         vertex_offset = 0
         for element in elements:
             geometry = element.find("geometry")
             if geometry is None:
                 continue
-            mesh = _load_geometry_mesh(asset_dir, geometry)
             rotation, translation = _origin_transform(element.find("origin"))
+            box_node = geometry.find("box")
+            sphere_node = geometry.find("sphere")
+            cylinder_node = geometry.find("cylinder")
+            if box_node is not None:
+                size = np.fromstring(box_node.attrib["size"], sep=" ", dtype=np.float32)
+                link_primitives.append(
+                    {
+                        "type": "box",
+                        "half_extents": torch.tensor(size * 0.5, dtype=torch.float32),
+                        "rotation": torch.tensor(rotation, dtype=torch.float32),
+                        "translation": torch.tensor(translation, dtype=torch.float32),
+                    }
+                )
+                continue
+            if sphere_node is not None:
+                link_primitives.append(
+                    {
+                        "type": "sphere",
+                        "radius": float(sphere_node.attrib["radius"]),
+                        "rotation": torch.tensor(rotation, dtype=torch.float32),
+                        "translation": torch.tensor(translation, dtype=torch.float32),
+                    }
+                )
+                continue
+            if cylinder_node is not None:
+                link_primitives.append(
+                    {
+                        "type": "cylinder",
+                        "radius": float(cylinder_node.attrib["radius"]),
+                        "half_height": 0.5 * float(cylinder_node.attrib["length"]),
+                        "rotation": torch.tensor(rotation, dtype=torch.float32),
+                        "translation": torch.tensor(translation, dtype=torch.float32),
+                    }
+                )
+                continue
+            mesh = _load_geometry_mesh(asset_dir, geometry)
             vertices = np.asarray(mesh.vertices, dtype=np.float32)
             vertices = vertices @ rotation.T + translation.reshape(1, 3)
             faces = np.asarray(mesh.faces, dtype=np.int64)
@@ -267,7 +308,9 @@ def _load_collision_meshes(asset_dir: Path, urdf_path: Path) -> tuple[dict[str, 
         if link_vertices:
             vertices_by_link[link_name] = torch.cat(link_vertices, dim=0)
             faces_by_link[link_name] = torch.cat(link_faces, dim=0)
-    return vertices_by_link, faces_by_link
+        if link_primitives:
+            primitives_by_link[link_name] = link_primitives
+    return vertices_by_link, faces_by_link, primitives_by_link
 
 
 def load_shadow_hand_metadata(asset_dir: str | Path | None = None) -> ShadowHandMetadata:
@@ -279,7 +322,7 @@ def load_shadow_hand_metadata(asset_dir: str | Path | None = None) -> ShadowHand
         raise ValueError("Unexpected Shadow Hand joint order in URDF.")
     joint_lower, joint_upper = _parse_joint_limits(urdf_path, joint_names)
     contact_candidate_points, contact_candidate_normals, contact_candidate_links = _load_contact_candidates(resolved_dir)
-    collision_vertices, collision_faces = _load_collision_meshes(resolved_dir, urdf_path)
+    collision_vertices, collision_faces, collision_primitives = _load_collision_meshes(resolved_dir, urdf_path)
     return ShadowHandMetadata(
         asset_dir=resolved_dir,
         urdf_path=urdf_path,
@@ -295,6 +338,7 @@ def load_shadow_hand_metadata(asset_dir: str | Path | None = None) -> ShadowHand
         penetration_points=_load_penetration_points(resolved_dir),
         collision_vertices=collision_vertices,
         collision_faces=collision_faces,
+        collision_primitives=collision_primitives,
     )
 
 
@@ -358,16 +402,44 @@ class ShadowHandModel:
         self._candidate_normals = metadata.contact_candidate_normals.to(device=self.device, dtype=dtype)
         self._penetration_links = list(metadata.penetration_points.keys())
         self._collision_meshes: dict[str, dict[str, object]] = {}
-        for link_name, vertices in metadata.collision_vertices.items():
-            faces = metadata.collision_faces[link_name]
+        collision_links = set(metadata.collision_vertices.keys()) | set(metadata.collision_primitives.keys())
+        for link_name in collision_links:
+            vertices = metadata.collision_vertices.get(link_name)
+            faces = metadata.collision_faces.get(link_name)
             mesh_data: dict[str, object] = {
-                "vertices": vertices.to(dtype=self.dtype),
-                "faces": faces,
+                "primitives": [],
             }
-            if with_torchsdf:
-                mesh_data["face_verts"] = index_vertices_by_faces(vertices.to(dtype=torch.float32), faces)
-            else:
-                mesh_data["mesh"] = tm.Trimesh(vertices.numpy(), faces.numpy(), process=False)
+            if vertices is not None and faces is not None:
+                vertices_device = vertices.to(device=self.device, dtype=self.dtype)
+                faces = faces.to(device=self.device)
+                mesh_data["vertices"] = vertices_device
+                mesh_data["faces"] = faces
+                if with_torchsdf:
+                    mesh_data["face_verts"] = index_vertices_by_faces(
+                        vertices_device.to(dtype=torch.float32),
+                        faces,
+                    )
+                else:
+                    mesh_data["mesh"] = tm.Trimesh(
+                        vertices_device.detach().cpu().numpy(),
+                        faces.detach().cpu().numpy(),
+                        process=False,
+                    )
+            for primitive in metadata.collision_primitives.get(link_name, []):
+                mesh_data["primitives"].append(
+                    {
+                        "type": primitive["type"],
+                        "rotation": primitive["rotation"].to(device=self.device, dtype=self.dtype),
+                        "translation": primitive["translation"].to(device=self.device, dtype=self.dtype),
+                        **{
+                            key: value.to(device=self.device, dtype=self.dtype)
+                            if isinstance(value, torch.Tensor)
+                            else value
+                            for key, value in primitive.items()
+                            if key not in {"type", "rotation", "translation"}
+                        },
+                    }
+                )
             self._collision_meshes[link_name] = mesh_data
 
     @classmethod
@@ -502,14 +574,42 @@ class ShadowHandModel:
             transform = transforms[link_name]
             points_local = (points - transform[:, :3, 3].unsqueeze(1)) @ transform[:, :3, :3]
             flat_points = points_local.reshape(-1, 3)
-            if with_torchsdf:
-                face_verts = mesh_data["face_verts"].to(device=flat_points.device, dtype=flat_points.dtype)
+            link_distances = []
+            if "face_verts" in mesh_data:
+                face_verts = mesh_data["face_verts"]
+                if face_verts.dtype != flat_points.dtype:
+                    face_verts = face_verts.to(dtype=flat_points.dtype)
                 squared_distance, signs, _, _ = compute_sdf(flat_points, face_verts)
                 link_distance = torch.sqrt(squared_distance + 1e-8) * (-signs.to(dtype=flat_points.dtype))
-                distances.append(link_distance.reshape(points.shape[0], points.shape[1]))
-                continue
-            query = flat_points.detach().cpu().numpy()
-            mesh = mesh_data["mesh"]
-            link_distance = tm.proximity.signed_distance(mesh, query)
-            distances.append(torch.tensor(link_distance, dtype=points.dtype, device=points.device).reshape(points.shape[0], points.shape[1]))
+                link_distances.append(link_distance.reshape(points.shape[0], points.shape[1]))
+            elif "mesh" in mesh_data:
+                query = flat_points.detach().cpu().numpy()
+                mesh = mesh_data["mesh"]
+                link_distance = tm.proximity.signed_distance(mesh, query)
+                link_distances.append(torch.tensor(link_distance, dtype=points.dtype, device=points.device).reshape(points.shape[0], points.shape[1]))
+            for primitive in mesh_data.get("primitives", []):
+                primitive_points = (points_local - primitive["translation"].view(1, 1, 3)) @ primitive["rotation"]
+                if primitive["type"] == "box":
+                    half_extents = primitive["half_extents"].view(1, 1, 3)
+                    q = primitive_points.abs() - half_extents
+                    outside = q.clamp_min(0.0).norm(dim=-1)
+                    inside = torch.minimum(q.max(dim=-1).values, torch.zeros((), device=q.device, dtype=q.dtype))
+                    link_distances.append(-(outside + inside))
+                elif primitive["type"] == "sphere":
+                    radius = primitive_points.new_tensor(float(primitive["radius"]))
+                    link_distances.append(radius - primitive_points.norm(dim=-1))
+                elif primitive["type"] == "cylinder":
+                    radial = primitive_points[..., :2].norm(dim=-1)
+                    d = torch.stack(
+                        [
+                            radial - primitive_points.new_tensor(float(primitive["radius"])),
+                            primitive_points[..., 2].abs() - primitive_points.new_tensor(float(primitive["half_height"])),
+                        ],
+                        dim=-1,
+                    )
+                    outside = d.clamp_min(0.0).norm(dim=-1)
+                    inside = torch.minimum(d.max(dim=-1).values, torch.zeros((), device=d.device, dtype=d.dtype))
+                    link_distances.append(-(outside + inside))
+            if link_distances:
+                distances.append(torch.stack(link_distances, dim=0).max(dim=0).values)
         return torch.stack(distances, dim=0).max(dim=0).values

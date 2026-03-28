@@ -13,10 +13,38 @@ if with_torchsdf:
     from torchsdf import compute_sdf, index_vertices_by_faces
 
 
+def _farthest_point_indices(points: torch.Tensor, count: int) -> torch.Tensor:
+    if points.shape[0] <= count:
+        return torch.arange(points.shape[0], device=points.device, dtype=torch.long)
+    selected = torch.empty(count, device=points.device, dtype=torch.long)
+    selected[0] = 0
+    distances = torch.cdist(points[selected[0] : selected[0] + 1], points).squeeze(0)
+    for idx in range(1, count):
+        next_index = torch.argmax(distances)
+        selected[idx] = next_index
+        next_distances = torch.cdist(points[next_index : next_index + 1], points).squeeze(0)
+        distances = torch.minimum(distances, next_distances)
+    return selected
+
+
+def _sample_surface_with_fps(
+    mesh: tm.Trimesh,
+    count: int,
+    *,
+    oversample_factor: int = 100,
+) -> tuple[np.ndarray, np.ndarray]:
+    dense_count = max(count, oversample_factor * count)
+    sampled_points, face_indices = tm.sample.sample_surface(mesh, dense_count)
+    sampled_points_t = torch.tensor(sampled_points, dtype=torch.float32)
+    selected = _farthest_point_indices(sampled_points_t, count).cpu().numpy()
+    return sampled_points[selected], face_indices[selected]
+
+
 @dataclass
 class MeshObject:
     mesh_path: Path
     scale: float = 1.0
+    penetration_num_samples: int = 256
 
     def __post_init__(self):
         self.mesh_path = Path(self.mesh_path).expanduser().resolve()
@@ -38,6 +66,12 @@ class MeshObject:
         self._hull_vertices = hull_vertices
         self._hull_faces = hull_faces
         self._hull_face_verts = index_vertices_by_faces(hull_vertices, hull_faces) if with_torchsdf else None
+        penetration_points, _ = self.sample_surface(
+            self.penetration_num_samples,
+            dtype=torch.float32,
+            device=torch.device("cpu"),
+        )
+        self._penetration_surface_points = penetration_points.detach().cpu()
 
     @property
     def mesh(self) -> tm.Trimesh:
@@ -46,6 +80,10 @@ class MeshObject:
     @property
     def convex_hull(self) -> tm.Trimesh:
         return self._convex_hull
+
+    @property
+    def penetration_surface_points(self) -> torch.Tensor:
+        return self._penetration_surface_points
 
     @classmethod
     def from_code(cls, data_root: str | Path, object_code: str, scale: float = 1.0) -> "MeshObject":
@@ -60,7 +98,7 @@ class MeshObject:
         raise FileNotFoundError(f"Could not resolve mesh for object code '{object_code}' under {root}")
 
     def sample_surface(self, batch_size: int, dtype: torch.dtype, device: torch.device) -> tuple[torch.Tensor, torch.Tensor]:
-        points, face_indices = tm.sample.sample_surface_even(self.mesh, batch_size)
+        points, face_indices = _sample_surface_with_fps(self.mesh, batch_size)
         normals = self.mesh.face_normals[face_indices]
         return (
             torch.tensor(points, dtype=dtype, device=device),
@@ -76,16 +114,16 @@ class MeshObject:
     ) -> tuple[torch.Tensor, torch.Tensor]:
         hull = self.convex_hull
         if self._has_rtree:
-            sampled, face_indices = tm.sample.sample_surface_even(hull, 100 * batch_size)
+            sampled, face_indices = _sample_surface_with_fps(hull, 100 * batch_size)
             inflated = sampled + hull.face_normals[face_indices] * inflation
-            choice = np.random.choice(inflated.shape[0], size=batch_size, replace=inflated.shape[0] < batch_size)
-            support_points = inflated[choice]
+            selected = _farthest_point_indices(torch.tensor(inflated, dtype=torch.float32), batch_size).cpu().numpy()
+            support_points = inflated[selected]
             closest_points, _, triangle_ids = hull.nearest.on_surface(support_points)
             del closest_points
             normals = hull.face_normals[triangle_ids]
             points = support_points
         else:
-            points, face_indices = tm.sample.sample_surface_even(hull, batch_size)
+            points, face_indices = _sample_surface_with_fps(hull, batch_size)
             normals = hull.face_normals[face_indices]
         return (
             torch.tensor(points, dtype=dtype, device=device),

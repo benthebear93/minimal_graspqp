@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 
 import torch
@@ -44,6 +45,14 @@ def _surface_points_for_penetration(
     dtype: torch.dtype,
     device: torch.device,
 ) -> torch.Tensor:
+    precomputed = getattr(primitive, "penetration_surface_points", None)
+    if precomputed is not None:
+        if precomputed.shape[0] != num_samples:
+            raise ValueError(
+                f"Precomputed penetration surface points have shape {tuple(precomputed.shape)}, "
+                f"expected first dimension {num_samples}."
+            )
+        return precomputed.to(device=device, dtype=dtype)
     cache = getattr(primitive, "_penetration_surface_cache", None)
     if cache is None:
         cache = {}
@@ -71,15 +80,30 @@ def compute_grasp_energy(
     w_spen: float = 10.0,
     w_joint: float = 1.0,
     num_penetration_samples: int = 256,
+    profile: bool = False,
 ) -> dict[str, torch.Tensor]:
+    def sync() -> None:
+        if contact_points_device[0] is not None and contact_points_device[0].type == "cuda":
+            torch.cuda.synchronize(device=contact_points_device[0])
+
+    timings_ms = {}
+    contact_points_device: list[torch.device | None] = [None]
+
+    if profile:
+        t0 = time.perf_counter()
     contact_points = hand_model.contact_candidates_world(
         grasp_state.joint_values,
         indices=grasp_state.contact_indices,
         wrist_translation=grasp_state.wrist_translation,
         wrist_rotation=grasp_state.wrist_rotation,
     )
+    contact_points_device[0] = contact_points.device
     signed_distance = primitive.signed_distance(contact_points)
     contact_normals = primitive.normals(contact_points)
+    if profile:
+        sync()
+        t1 = time.perf_counter()
+        timings_ms["contacts_sdf_normals"] = (t1 - t0) * 1e3
     cog = (
         torch.tensor(
             primitive.center, dtype=contact_points.dtype, device=contact_points.device
@@ -90,6 +114,10 @@ def compute_grasp_energy(
 
     e_dis = signed_distance.abs().sum(dim=-1)
     e_fc = force_closure_metric.evaluate(contact_points, contact_normals, cog)
+    if profile:
+        sync()
+        t2 = time.perf_counter()
+        timings_ms["force_closure"] = (t2 - t1) * 1e3
 
     object_surface_points = (
         _surface_points_for_penetration(
@@ -111,6 +139,10 @@ def compute_grasp_energy(
         .clamp_min(0.0)
         .sum(dim=-1)
     )
+    if profile:
+        sync()
+        t3 = time.perf_counter()
+        timings_ms["penetration"] = (t3 - t2) * 1e3
 
     penetration_centers, penetration_radii, link_names = (
         hand_model.penetration_spheres_world(
@@ -127,6 +159,10 @@ def compute_grasp_energy(
         hand_model.metadata.joint_lower,
         hand_model.metadata.joint_upper,
     )
+    if profile:
+        sync()
+        t4 = time.perf_counter()
+        timings_ms["self_pen_joint"] = (t4 - t3) * 1e3
     total = (
         w_fc * e_fc
         + w_dis * e_dis
@@ -145,4 +181,5 @@ def compute_grasp_energy(
         "E_spen": e_spen,
         "E_joint": e_joint,
         "E_total": total,
+        "timings_ms": timings_ms,
     }

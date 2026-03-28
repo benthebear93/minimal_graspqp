@@ -1,133 +1,100 @@
 # minimal_graspqp
 
-`minimal_graspqp` is a reduced reproduction of **GraspQP** focused on a small, testable subset of the original method.
+![Render](images/render.png)
 
-Current project constraints:
+`minimal_graspqp` is a compact reproduction of the analytical GraspQP pipeline, focused on a small, testable Shadow Hand setup for primitive and mesh-object grasp optimization.
 
-- Shadow Hand only
-- no physics-engine validation
-- no Isaac / simulator evaluation
+Original paper:
 
-The current codebase implements a minimal end-to-end pipeline:
+- GraspQP: Differentiable Optimization of Force Closure for Diverse and Robust Dexterous Grasping
+- arXiv: <https://arxiv.org/abs/2508.15002>
+- Project page: <https://graspqp.github.io/>
 
-- Shadow Hand loading and forward kinematics
-- primitive and mesh-object signed distance and surface normals
-- contact candidate loading from the original Shadow Hand asset pack
-- friction-cone wrench construction
-- differentiable force-closure QP
-- grasp energy terms
+Development note:
+
+- Parts of this repository were implemented and iterated with OpenAI Codex.
+
+Attribution:
+
+- This repository is derived from the public GraspQP codebase by the GraspQP authors: <https://github.com/leggedrobotics/graspqp>
+- This reduced implementation keeps only a small analytical subset and has been adapted for local experimentation and debugging.
+- The original GraspQP repository is released under the MIT License; this repository includes the same license text in [LICENSE](LICENSE).
+
+## Scope
+
+Implemented:
+
+- Shadow Hand loading, forward kinematics, and contact candidate handling
+- primitive objects: `sphere`, `cylinder`, `box`
+- mesh objects from direct mesh paths or original-style object-code layouts
+- differentiable signed distance and surface normals
+- grasp energy terms: `E_fc`, `E_dis`, `E_pen`, `E_spen`, `E_joint`
+- bounded QP-based force-closure surrogate
 - MALA / MALA* optimization
-- viser visualization
+- viser-based visualization
 
-## Setup
+Out of scope:
 
-This repository uses `uv`.
+- Isaac / simulator evaluation
+- multi-hand support
+- large-scale dataset pipelines
+- full paper-scale hyperparameter reproduction
 
-Recommended environment:
+## Environment
+
+This repository is intended to be used with `uv`.
+
+Recommended setup:
 
 - Python `3.11`
-- `uv`
-- optional CUDA-enabled PyTorch setup if you want faster optimization
+- CUDA-enabled PyTorch if you want practical optimization speed
+- `mesh` extra for `TorchSDF` / `PyTorch3D`
+- `viser` extra for visualization
 
-Create the environment and install everything used by the current repo:
+Create and sync the environment:
 
 ```bash
 uv venv --python 3.11
-source .venv/bin/activate
-uv sync --extra dev --extra viser --extra mesh
+uv sync --extra dev --extra mesh --extra viser
 ```
 
-Useful commands:
+`uv` already manages the project virtual environment, so you do not need to `source .venv/bin/activate` if you consistently use `uv run`, `uv sync`, and `uv pip`.
+
+Useful checks:
 
 ```bash
-uv lock
+uv pip list | grep -Ei 'torchsdf|pytorch3d|rtree|viser'
+uv run python -c "import importlib.util; print('torchsdf', importlib.util.find_spec('torchsdf') is not None)"
 uv run pytest -q
-uv run python scripts/<script_name>.py
-uv run sphinx-build -b html docs docs/_build/html
 ```
 
 ## Repository Layout
 
 ```text
 .
+├── assets/                  # local object assets
+├── docs/                    # Sphinx docs
+├── images/                  # README assets
 ├── minimal_graspqp/
-│   ├── energy/           # grasp energy terms
-│   ├── hands/            # Shadow Hand model and FK
-│   ├── init/             # primitive / mesh-based grasp initialization
-│   ├── metrics/          # wrench and force-closure utilities
-│   ├── objects/          # sphere, cylinder, box, mesh objects
-│   ├── optim/            # MALA / MALA*
-│   ├── solvers/          # QP wrappers
-│   ├── state.py          # grasp-state container
-│   └── visualization/    # viser viewers
-├── scripts/              # runnable examples
-├── tests/                # feature-level tests
-├── SOFTWARE_REQUIREMENTS.md
-└── README.md
+│   ├── energy/              # grasp energy terms
+│   ├── hands/               # Shadow Hand model and FK
+│   ├── init/                # grasp initialization
+│   ├── metrics/             # wrench and force-closure utilities
+│   ├── objects/             # primitive and mesh objects
+│   ├── optim/               # MALA / MALA*
+│   ├── solvers/             # QP wrappers
+│   └── visualization/       # viser scenes
+├── outputs/                 # saved optimization results
+├── scripts/                 # runnable entry points
+├── tests/                   # test suite
+├── LICENSE
+├── README.md
+└── SOFTWARE_REQUIREMENTS.md
 ```
-
-## Implemented Scope
-
-Implemented now:
-
-- Shadow Hand asset resolution from the original `graspqp` asset tree
-- batched FK and contact candidate transforms
-- original-style Shadow Hand contact-candidate interpretation:
-  - `contact_points.json` entries are treated as surface-sampling directives
-  - the current Shadow Hand candidate pool contains `80` contact candidates
-- candidate normals for the Shadow Hand contact set
-- primitive SDFs for `sphere`, `cylinder`, and `box`
-- mesh-object loading from direct mesh paths or original-style object-code layouts
-- convex-hull initialization for mesh objects
-- full-mesh object SDF / normal queries via `TorchSDF`
-- `E_dis`, `E_pen`, `E_spen`, `E_joint`, `E_fc`
-- original-style hand-object penetration:
-  - object surface samples against Shadow Hand collision-mesh signed distance
-- original-style force-closure surrogate:
-  - overall friction-cone span metric
-  - bounded QP with warm-started coefficients
-- minimal MALA / MALA* optimizer with:
-  - EMA-style gradient normalization
-  - annealed step size and temperature
-  - MALA* z-score reset support
-- optional contact-index switching during optimization
-- primitive-aware initialization with:
-  - object-facing wrist orientation
-  - optional `--palm-down` bias
-- random active contact initialization matching the original code path
-- result export to `outputs/primitive_optimization.pt`
-- viser live visualization
-
-Out of scope for this repo:
-
-- multi-hand support
-- complex mesh-object benchmark suites
-- Isaac / simulator validation
-- full paper-scale hyperparameter reproduction
-
-## Documentation
-
-Sphinx documentation lives under `docs/` and is organized into:
-
-- overview and core concepts
-- task-oriented guides
-- API reference by package
-
-Build it with:
-
-```bash
-uv sync --extra docs
-uv run sphinx-build -b html docs docs/_build/html
-```
-
-Deployment options:
-
-- GitHub Pages via `.github/workflows/docs.yml`
-- Read the Docs via `.readthedocs.yaml`
 
 ## Run
 
-### 1. Static Visualization
+### Primitive Visualization
 
 ```bash
 uv run python scripts/visualize_shadow_hand_with_primitive.py --primitive sphere --palm-down
@@ -140,15 +107,15 @@ uv run python scripts/visualize_shadow_hand_with_primitive.py --primitive cylind
 uv run python scripts/visualize_shadow_hand_with_primitive.py --primitive box
 ```
 
-### 2. Initialization Visualization
+### Initialization Visualization
 
 ```bash
 uv run python scripts/visualize_initialization.py --primitive sphere --batch-size 6 --palm-down
 ```
 
-### 3. Primitive Optimization
+### Primitive Optimization
 
-Baseline run:
+Small smoke run:
 
 ```bash
 uv run python scripts/optimize_primitive.py \
@@ -158,7 +125,7 @@ uv run python scripts/optimize_primitive.py \
   --num-steps 10
 ```
 
-MALA*:
+MALA* smoke run:
 
 ```bash
 uv run python scripts/optimize_primitive.py \
@@ -169,31 +136,19 @@ uv run python scripts/optimize_primitive.py \
   --mala-star
 ```
 
-A small deterministic smoke run:
+Debug run with progress and timing:
 
 ```bash
 uv run python scripts/optimize_primitive.py \
   --primitive sphere \
   --palm-down \
-  --batch-size 1 \
-  --num-steps 1 \
-  --mala-star \
-  --seed 0
+  --batch-size 4 \
+  --num-steps 10 \
+  --log-every 1 \
+  --profile-every 1
 ```
 
-The optimizer writes:
-
-- `outputs/primitive_optimization.pt`
-
-and prints:
-
-- mean initial energy
-- mean final energy
-- best mean energy in trace
-- accepted steps per iteration
-- resets per iteration
-
-### 3.1. Mesh Optimization
+### Mesh Optimization
 
 Original-style object-code layout:
 
@@ -222,58 +177,78 @@ uv run python scripts/optimize_primitive.py \
   --output outputs/mesh_optimization.pt
 ```
 
-Notes:
-
-- `--contact-switch-probability 0.4` matches the original `graspqp` default more closely
-- the paper optimizes for `7000` steps; the short commands here are smoke / debug runs
-- mesh initialization uses the convex hull, while distance / normal queries use the full mesh
-
-### 4. Optimization Result Visualization
-
-```bash
-uv run python scripts/visualize_optimization_result.py \
-  --input outputs/primitive_optimization.pt \
-  --sample-index 0
-```
-
-An example run that currently behaves reasonably well for the minimal setup:
+STL mesh with fingertip-only contact candidates:
 
 ```bash
 uv run python scripts/optimize_primitive.py \
-  --object-root /home/haegu/minimal_graspqp/assets/objects \
-  --object-code core_bottle \
-  --mala-star \
-  --num-contacts 12 \
-  --num-steps 200 \
+  --mesh-path /home/haegu/minimal_graspqp/assets/objects/test_object.stl \
+  --mesh-scale 0.001 \
   --batch-size 4 \
+  --num-steps 200 \
+  --num-contacts 12 \
+  --mala-star \
   --contact-switch-probability 0.4 \
-  --seed 0
+  --fingertips-only \
+  --log-every 5 \
+  --output outputs/test_object_fingertips.pt
+```
+
+What this command does:
+
+- loads `test_object.stl` as the target mesh
+- applies `--mesh-scale 0.001`, useful when the source mesh is authored in millimeters
+- runs `4` grasp candidates in parallel
+- uses `12` active contacts per candidate
+- enables stochastic contact switching with probability `0.4`
+- restricts candidates to Shadow Hand fingertip distal links
+- writes the result to `outputs/test_object_fingertips.pt`
+
+## Result Visualization
+
+Single sample:
+
+```bash
+uv run python scripts/visualize_optimization_result.py \
+  --input outputs/test_object_fingertips.pt \
+  --sample-index 0
+```
+
+Whole batch in one scene:
+
+```bash
+uv run python scripts/visualize_optimization_batch.py \
+  --input outputs/test_object_fingertips.pt \
+  --spacing 0.3 \
+  --row-spacing 0.4 \
+  --port 8081
+```
+
+Then open `http://localhost:8081`.
+
+## Runtime Notes
+
+- `scripts/optimize_primitive.py` prints backend status at startup.
+- If `torchsdf_installed=False` or `hand_with_torchsdf=False`, optimization can become dramatically slower.
+- `MALA*` reset behavior depends on both `--num-steps` and `--reset-interval`. Short runs may use the z-score temperature modulation without ever triggering a reset.
+- `--profile-every N` is the fastest way to identify whether runtime is dominated by `penetration`, `force_closure`, or another energy component.
+
+## Documentation
+
+Build the Sphinx docs with:
+
+```bash
+uv sync --extra docs
+uv run sphinx-build -b html docs docs/_build/html
 ```
 
 ## Testing
 
-Run the full test suite:
+Run the test suite:
 
 ```bash
 uv run pytest -q
 ```
 
-Tests are organized by feature, including:
+## License
 
-- hand model and FK
-- primitive geometry
-- wrench construction
-- QP solving
-- force closure
-- initialization
-- energy computation
-- optimizer behavior
-- viser visualization smoke tests
-
-## Notes
-
-- This is an unofficial reproduction.
-- The implementation follows the reduced scope in [SOFTWARE_REQUIREMENTS.md](/home/haegu/minimal_graspqp/SOFTWARE_REQUIREMENTS.md).
-- Optimizer defaults are informed by the original `graspqp` codebase, but this repo is still a minimal implementation rather than a full paper-scale reproduction.
-- Energy reduction does not yet imply a physically validated grasp. This repo currently has no simulator-based or quasi-static validation stage.
-- The current initialization and contact selection are much better than the first minimal version, but they are still simplified relative to the full original pipeline.
+This repository includes the MIT license text from the original GraspQP repository. If you publish or redistribute this repository or substantial derived portions of the upstream code, keep the license notice and attribution intact.
