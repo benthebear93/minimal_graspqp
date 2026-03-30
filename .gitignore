@@ -10,3 +10,4 @@ docs/_build/
 outputs/
 *.pt
 *.csv
+.codex/
