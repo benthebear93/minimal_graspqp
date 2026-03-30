@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import importlib.util
+import pytest
 import torch
 
 from minimal_graspqp.hands import ShadowHandModel
@@ -50,3 +51,24 @@ def test_mesh_object_uses_torchsdf_when_available():
     assert normals.shape == (1, 2, 3)
     assert torch.isfinite(sdf).all()
     assert torch.isfinite(normals).all()
+
+
+@pytest.mark.parametrize(
+    "mesh_name",
+    [
+        "test_object.stl",
+        "test_tube.stl",
+    ],
+)
+def test_local_stl_assets_initialize_fingertip_grasps(mesh_name: str):
+    mesh_path = Path("/home/haegu/minimal_graspqp/assets/objects") / mesh_name
+    if not mesh_path.exists():
+        return
+    hand_model = ShadowHandModel.create(device="cpu", fingertips_only=True)
+    mesh_object = MeshObject(mesh_path, scale=0.001)
+    grasp_state = initialize_grasps_for_primitive(hand_model, mesh_object, batch_size=1, num_contacts=4)
+    assert grasp_state.joint_values.shape == (1, 24)
+    assert grasp_state.wrist_translation.shape == (1, 3)
+    assert grasp_state.wrist_rotation.shape == (1, 3, 3)
+    assert grasp_state.contact_indices.shape == (1, 4)
+    assert torch.isfinite(grasp_state.wrist_translation).all()

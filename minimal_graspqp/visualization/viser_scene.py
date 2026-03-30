@@ -53,7 +53,7 @@ def _add_points(
     prefix: str,
     points: np.ndarray,
     color: str,
-    radius: float = 0.004,
+    radius: float = 0.0028,
 ) -> None:
     for idx, point in enumerate(points):
         server.scene.add_icosphere(
@@ -154,7 +154,7 @@ def publish_shadow_hand_primitive_viser(
 
     if highlight_contact_indices:
         highlight = contacts[np.asarray(highlight_contact_indices, dtype=np.int64)]
-        _add_points(server, "/highlight_contacts", highlight, color="limegreen", radius=0.007)
+        _add_points(server, "/highlight_contacts", highlight, color="limegreen", radius=0.0049)
 
     if show_penetration_spheres:
         centers, radii, _ = hand_model.penetration_spheres_world(

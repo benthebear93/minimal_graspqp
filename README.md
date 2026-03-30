@@ -192,7 +192,6 @@ uv run python scripts/optimize_primitive.py \
   --log-every 5 \
   --output outputs/test_object_fingertips.pt
 ```
-
 What this command does:
 
 - loads `test_object.stl` as the target mesh
@@ -202,6 +201,8 @@ What this command does:
 - enables stochastic contact switching with probability `0.4`
 - restricts candidates to Shadow Hand fingertip distal links
 - writes the result to `outputs/test_object_fingertips.pt`
+
+Project-specific `test_tube.stl` recipes are kept in [`scripts/test_tube_notes.md`](scripts/test_tube_notes.md) instead of this README.
 
 ## Result Visualization
 

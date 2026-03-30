@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import importlib.util
+import math
 import numpy as np
 import torch
 import trimesh as tm
@@ -40,16 +41,33 @@ def _sample_surface_with_fps(
     return sampled_points[selected], face_indices[selected]
 
 
+def _rotation_matrix_from_rpy(roll: float, pitch: float, yaw: float) -> np.ndarray:
+    cr = math.cos(roll)
+    sr = math.sin(roll)
+    cp = math.cos(pitch)
+    sp = math.sin(pitch)
+    cy = math.cos(yaw)
+    sy = math.sin(yaw)
+    rx = np.array([[1.0, 0.0, 0.0], [0.0, cr, -sr], [0.0, sr, cr]], dtype=np.float32)
+    ry = np.array([[cp, 0.0, sp], [0.0, 1.0, 0.0], [-sp, 0.0, cp]], dtype=np.float32)
+    rz = np.array([[cy, -sy, 0.0], [sy, cy, 0.0], [0.0, 0.0, 1.0]], dtype=np.float32)
+    return rz @ ry @ rx
+
+
 @dataclass
 class MeshObject:
     mesh_path: Path
     scale: float = 1.0
+    rotation_rpy: tuple[float, float, float] = (0.0, 0.0, 0.0)
     penetration_num_samples: int = 256
 
     def __post_init__(self):
         self.mesh_path = Path(self.mesh_path).expanduser().resolve()
         self._mesh = tm.load(self.mesh_path, force="mesh", process=True)
         self._mesh.vertices = self._mesh.vertices * self.scale
+        if any(abs(angle) > 1e-12 for angle in self.rotation_rpy):
+            rotation = _rotation_matrix_from_rpy(*self.rotation_rpy)
+            self._mesh.vertices = np.asarray(self._mesh.vertices, dtype=np.float32) @ rotation.T
         self._convex_hull = self._mesh.convex_hull
         self.center = tuple(self._mesh.centroid.tolist())
         self._has_rtree = importlib.util.find_spec("rtree") is not None
@@ -86,7 +104,13 @@ class MeshObject:
         return self._penetration_surface_points
 
     @classmethod
-    def from_code(cls, data_root: str | Path, object_code: str, scale: float = 1.0) -> "MeshObject":
+    def from_code(
+        cls,
+        data_root: str | Path,
+        object_code: str,
+        scale: float = 1.0,
+        rotation_rpy: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    ) -> "MeshObject":
         root = Path(data_root).expanduser().resolve()
         candidates = [
             root / object_code / "coacd" / "remeshed.obj",
@@ -94,7 +118,7 @@ class MeshObject:
         ]
         for path in candidates:
             if path.exists():
-                return cls(path, scale=scale)
+                return cls(path, scale=scale, rotation_rpy=rotation_rpy)
         raise FileNotFoundError(f"Could not resolve mesh for object code '{object_code}' under {root}")
 
     def sample_surface(self, batch_size: int, dtype: torch.dtype, device: torch.device) -> tuple[torch.Tensor, torch.Tensor]:

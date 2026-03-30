@@ -21,7 +21,7 @@ def main():
     parser.add_argument("--mesh-scale", type=float, default=1.0)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--batch-size", type=int, default=6)
-    parser.add_argument("--num-contacts", type=int, default=4)
+    parser.add_argument("--num-contacts", type=int, default=12)
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--duration", type=float, default=0.0)

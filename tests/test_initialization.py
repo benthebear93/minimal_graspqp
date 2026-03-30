@@ -2,6 +2,7 @@ import torch
 
 from minimal_graspqp.hands import ShadowHandModel
 from minimal_graspqp.init import initialize_grasps_for_primitive
+from minimal_graspqp.objects import MeshObject
 from minimal_graspqp.objects import Sphere
 from minimal_graspqp.rotation import palm_down_rotation
 
@@ -62,3 +63,31 @@ def test_initialize_grasps_for_primitive_faces_object_when_unperturbed():
     forward_world = grasp_state.wrist_rotation[:, :, 2]
     alignment = (forward_world * wrist_to_center).sum(dim=-1)
     assert torch.all(alignment > 0.95)
+
+
+def test_initialize_grasps_for_primitive_supports_equalized_contact_pools():
+    hand_model = ShadowHandModel.create(device="cpu", allowed_contact_links=["th", "ff", "mf"])
+    mesh_object = MeshObject("/home/haegu/minimal_graspqp/assets/objects/test_tube.stl", scale=0.001)
+    link_to_indices = {}
+    for idx, link_name in enumerate(hand_model.metadata.contact_candidate_links):
+        link_to_indices.setdefault(link_name, []).append(idx)
+    contact_index_pools = [
+        torch.tensor(link_to_indices["robot0_thdistal"], dtype=torch.long),
+        torch.tensor(link_to_indices["robot0_thdistal"], dtype=torch.long),
+        torch.tensor(link_to_indices["robot0_thdistal"], dtype=torch.long),
+        torch.tensor(link_to_indices["robot0_ffdistal"], dtype=torch.long),
+        torch.tensor(link_to_indices["robot0_ffdistal"], dtype=torch.long),
+        torch.tensor(link_to_indices["robot0_ffdistal"], dtype=torch.long),
+        torch.tensor(link_to_indices["robot0_mfdistal"], dtype=torch.long),
+        torch.tensor(link_to_indices["robot0_mfdistal"], dtype=torch.long),
+        torch.tensor(link_to_indices["robot0_mfdistal"], dtype=torch.long),
+    ]
+    grasp_state = initialize_grasps_for_primitive(
+        hand_model,
+        mesh_object,
+        batch_size=4,
+        num_contacts=9,
+        contact_index_pools=contact_index_pools,
+    )
+    for column_id, pool in enumerate(contact_index_pools):
+        assert torch.isin(grasp_state.contact_indices[:, column_id], pool).all()

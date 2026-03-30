@@ -24,7 +24,7 @@ def main():
     parser = argparse.ArgumentParser(description="Visualize initialized Shadow Hand grasp candidates around a primitive.")
     parser.add_argument("--primitive", choices=["sphere", "cylinder", "box"], default="sphere")
     parser.add_argument("--batch-size", type=int, default=6)
-    parser.add_argument("--num-contacts", type=int, default=4)
+    parser.add_argument("--num-contacts", type=int, default=12, help="Number of active contact points to initialize.")
     parser.add_argument("--radius", type=float, default=0.05)
     parser.add_argument("--half-height", type=float, default=0.08)
     parser.add_argument("--half-x", type=float, default=0.04)

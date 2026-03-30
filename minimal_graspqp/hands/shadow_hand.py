@@ -84,6 +84,14 @@ FINGERTIP_LINK_NAMES = [
     "robot0_thdistal",
 ]
 
+FINGERTIP_ALIASES = {
+    "ff": "robot0_ffdistal",
+    "mf": "robot0_mfdistal",
+    "rf": "robot0_rfdistal",
+    "lf": "robot0_lfdistal",
+    "th": "robot0_thdistal",
+}
+
 
 @dataclass
 class ShadowHandMetadata:
@@ -363,6 +371,20 @@ def filter_contact_candidates(
     )
 
 
+def resolve_contact_link_names(
+    requested_links: list[str] | tuple[str, ...] | None,
+) -> list[str] | None:
+    if not requested_links:
+        return None
+    resolved = []
+    for link_name in requested_links:
+        key = link_name.strip()
+        if not key:
+            continue
+        resolved.append(FINGERTIP_ALIASES.get(key, key))
+    return resolved
+
+
 def apply_contact_candidate_overrides(
     metadata: ShadowHandMetadata,
     overrides: dict[int, list[float] | tuple[float, float, float]],
@@ -448,6 +470,7 @@ class ShadowHandModel:
         asset_dir: str | Path | None = None,
         device: str | torch.device = "cpu",
         fingertips_only: bool = False,
+        allowed_contact_links: list[str] | tuple[str, ...] | None = None,
         contact_points_override_path: str | Path | None = None,
     ) -> "ShadowHandModel":
         metadata = load_shadow_hand_metadata(asset_dir=asset_dir)
@@ -458,6 +481,9 @@ class ShadowHandModel:
             )
         if fingertips_only:
             metadata = filter_contact_candidates(metadata, FINGERTIP_LINK_NAMES)
+        resolved_links = resolve_contact_link_names(allowed_contact_links)
+        if resolved_links:
+            metadata = filter_contact_candidates(metadata, resolved_links)
         return cls(metadata, device=device)
 
     def default_joint_state(self, batch_size: int = 1) -> torch.Tensor:

@@ -36,7 +36,7 @@ def main():
     parser.add_argument("--mesh-scale", type=float, default=1.0, help="Uniform scale applied when loading a mesh object.")
     parser.add_argument("--batch-size", type=int, default=6)
     parser.add_argument("--sample-index", type=int, default=0)
-    parser.add_argument("--num-contacts", type=int, default=4)
+    parser.add_argument("--num-contacts", type=int, default=12)
     parser.add_argument("--radius", type=float, default=0.05)
     parser.add_argument("--half-height", type=float, default=0.08)
     parser.add_argument("--half-x", type=float, default=0.04)

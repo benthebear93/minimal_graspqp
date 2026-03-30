@@ -61,8 +61,15 @@ class OptimizationHistory:
 
 
 class MalaOptimizer:
-    def __init__(self, config: MalaConfig):
+    def __init__(
+        self,
+        config: MalaConfig,
+        init_kwargs: dict[str, object] | None = None,
+        contact_index_pools: list[torch.Tensor] | None = None,
+    ):
         self.config = config
+        self.init_kwargs = init_kwargs or {}
+        self.contact_index_pools = contact_index_pools
         self._ema_joint = None
         self._ema_translation = None
         self._ema_rotation = None
@@ -141,8 +148,22 @@ class MalaOptimizer:
             torch.rand(contact_indices.shape, device=contact_indices.device) < self.config.contact_switch_probability
         )
         if switch_mask.any():
-            num_candidates = hand_model.metadata.num_contact_candidates
-            contact_indices[switch_mask] = torch.randint(0, num_candidates, (int(switch_mask.sum().item()),), device=contact_indices.device)
+            if self.contact_index_pools:
+                for column_id, pool in enumerate(self.contact_index_pools):
+                    column_mask = switch_mask[:, column_id]
+                    if not column_mask.any():
+                        continue
+                    pool = pool.to(device=contact_indices.device)
+                    sampled = pool[torch.randint(pool.numel(), size=(int(column_mask.sum().item()),), device=contact_indices.device)]
+                    contact_indices[column_mask, column_id] = sampled
+            else:
+                num_candidates = hand_model.metadata.num_contact_candidates
+                contact_indices[switch_mask] = torch.randint(
+                    0,
+                    num_candidates,
+                    (int(switch_mask.sum().item()),),
+                    device=contact_indices.device,
+                )
 
         return GraspState(
             joint_values=joint_values.detach(),
@@ -220,6 +241,7 @@ class MalaOptimizer:
                         primitive,
                         batch_size=reset_mask.sum().item(),
                         num_contacts=current_state.contact_indices.shape[1],
+                        **self.init_kwargs,
                     )
                     next_state.joint_values[reset_mask] = reinit_state.joint_values
                     next_state.wrist_translation[reset_mask] = reinit_state.wrist_translation

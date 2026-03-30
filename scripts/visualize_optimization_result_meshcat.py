@@ -14,7 +14,11 @@ from minimal_graspqp.visualization import publish_optimization_result_viser
 def build_primitive_from_metadata(metadata: dict):
     primitive_type = metadata["type"]
     if primitive_type == "mesh":
-        return MeshObject(metadata["mesh_path"], scale=float(metadata.get("scale", 1.0)))
+        return MeshObject(
+            metadata["mesh_path"],
+            scale=float(metadata.get("scale", 1.0)),
+            rotation_rpy=tuple(metadata.get("rotation_rpy", [0.0, 0.0, 0.0])),
+        )
     center = tuple(metadata.get("center", [0.0, 0.0, 0.0]))
     if primitive_type == "sphere":
         return Sphere(radius=float(metadata["radius"]), center=center)
@@ -48,7 +52,12 @@ def main():
     payload = torch.load(args.input, map_location="cpu", weights_only=False)
     primitive = build_primitive_from_metadata(payload["primitive"])
     fingertips_only = bool(payload.get("hand", {}).get("fingertips_only", False))
-    hand_model = ShadowHandModel.create(device=args.device, fingertips_only=fingertips_only)
+    allowed_contact_links = payload.get("hand", {}).get("allowed_contact_links")
+    hand_model = ShadowHandModel.create(
+        device=args.device,
+        fingertips_only=fingertips_only,
+        allowed_contact_links=allowed_contact_links,
+    )
     initial_state = _to_state(payload, "initial_state")
     final_state = _to_state(payload, "final_state")
     server = publish_optimization_result_viser(

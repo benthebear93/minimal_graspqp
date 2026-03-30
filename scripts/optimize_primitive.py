@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import math
 from pathlib import Path
 
 import torch
@@ -9,6 +10,7 @@ import torch
 from minimal_graspqp.energy import compute_grasp_energy
 from minimal_graspqp.hands import ShadowHandModel
 from minimal_graspqp.hands import shadow_hand as shadow_hand_module
+from minimal_graspqp.hands.shadow_hand import resolve_contact_link_names
 from minimal_graspqp.init import initialize_grasps_for_primitive
 from minimal_graspqp.metrics import ForceClosureQP
 from minimal_graspqp.objects import mesh_object as mesh_object_module
@@ -19,11 +21,28 @@ from minimal_graspqp.rotation import palm_down_rotation
 
 def build_object(args):
     if args.mesh_path:
-        return MeshObject(Path(args.mesh_path), scale=args.mesh_scale)
+        return MeshObject(
+            Path(args.mesh_path),
+            scale=args.mesh_scale,
+            rotation_rpy=(
+                math.radians(args.mesh_roll_deg),
+                math.radians(args.mesh_pitch_deg),
+                math.radians(args.mesh_yaw_deg),
+            ),
+        )
     if args.object_code:
         if not args.object_root:
             raise ValueError("--object-root is required when --object-code is used.")
-        return MeshObject.from_code(args.object_root, args.object_code, scale=args.mesh_scale)
+        return MeshObject.from_code(
+            args.object_root,
+            args.object_code,
+            scale=args.mesh_scale,
+            rotation_rpy=(
+                math.radians(args.mesh_roll_deg),
+                math.radians(args.mesh_pitch_deg),
+                math.radians(args.mesh_yaw_deg),
+            ),
+        )
     if args.primitive == "sphere":
         return Sphere(radius=args.radius)
     if args.primitive == "cylinder":
@@ -31,6 +50,25 @@ def build_object(args):
     if args.primitive == "box":
         return Box(half_extents=(args.half_x, args.half_y, args.half_z))
     raise ValueError(f"Unsupported primitive: {args.primitive}")
+
+
+def build_contact_index_pools(hand_model, allowed_contact_links, num_contacts: int, equalize: bool) -> list[torch.Tensor] | None:
+    if not equalize:
+        return None
+    if not allowed_contact_links:
+        raise ValueError("--equalize-contacts-across-links requires --allowed-contact-links.")
+    if num_contacts % len(allowed_contact_links) != 0:
+        raise ValueError("--num-contacts must be divisible by the number of allowed contact links when equalization is enabled.")
+    candidate_links = hand_model.metadata.contact_candidate_links
+    contacts_per_link = num_contacts // len(allowed_contact_links)
+    pools = []
+    for link_name in allowed_contact_links:
+        indices = [idx for idx, candidate_link in enumerate(candidate_links) if candidate_link == link_name]
+        if not indices:
+            raise ValueError(f"No contact candidates found for link {link_name}.")
+        pool = torch.tensor(indices, dtype=torch.long, device=hand_model.device)
+        pools.extend([pool] * contacts_per_link)
+    return pools
 
 
 def serialize_state(state):
@@ -51,12 +89,14 @@ def object_metadata(args, obj):
                 "object_root": str(Path(args.object_root).resolve()) if args.object_root else None,
                 "mesh_path": str(obj.mesh_path),
                 "scale": float(args.mesh_scale),
+                "rotation_rpy": list(obj.rotation_rpy),
                 "center": list(obj.center),
             }
         return {
             "type": "mesh",
             "mesh_path": str(obj.mesh_path),
             "scale": float(args.mesh_scale),
+            "rotation_rpy": list(obj.rotation_rpy),
             "center": list(obj.center),
         }
     if args.primitive == "sphere":
@@ -104,9 +144,12 @@ def main():
     parser.add_argument("--object-root", default=None, help="Optional root directory for object-code lookup.")
     parser.add_argument("--object-code", default=None, help="Optional object code resolved as <object-root>/<object-code>/coacd/*.obj.")
     parser.add_argument("--mesh-scale", type=float, default=1.0, help="Uniform scale applied when loading a mesh object.")
+    parser.add_argument("--mesh-roll-deg", type=float, default=0.0, help="Roll rotation in degrees applied to mesh objects before optimization.")
+    parser.add_argument("--mesh-pitch-deg", type=float, default=0.0, help="Pitch rotation in degrees applied to mesh objects before optimization.")
+    parser.add_argument("--mesh-yaw-deg", type=float, default=0.0, help="Yaw rotation in degrees applied to mesh objects before optimization.")
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--num-steps", type=int, default=200)
-    parser.add_argument("--num-contacts", type=int, default=4)
+    parser.add_argument("--num-contacts", type=int, default=12)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--radius", type=float, default=0.05)
     parser.add_argument("--half-height", type=float, default=0.08)
@@ -130,13 +173,59 @@ def main():
     parser.add_argument("--output", default="outputs/primitive_optimization.pt")
     parser.add_argument("--palm-down", action="store_true", help="Bias initialization around a palm-down wrist orientation.")
     parser.add_argument("--fingertips-only", action="store_true", help="Restrict contact candidates to fingertip distal links only.")
+    parser.add_argument(
+        "--allowed-contact-links",
+        default=None,
+        help="Comma-separated allowed contact link names or fingertip aliases such as ff,mf,th.",
+    )
+    parser.add_argument(
+        "--init-surface-axis",
+        choices=["x", "y", "z"],
+        default=None,
+        help="Bias initialization to one end of the object's surface along the selected object-space axis.",
+    )
+    parser.add_argument(
+        "--init-surface-side",
+        choices=["min", "max"],
+        default="max",
+        help="Which end of --init-surface-axis to sample from.",
+    )
+    parser.add_argument(
+        "--init-surface-band-fraction",
+        type=float,
+        default=0.25,
+        help="Fraction of the object's extent kept near the selected init surface end.",
+    )
+    parser.add_argument(
+        "--equalize-contacts-across-links",
+        action="store_true",
+        help="Split contacts evenly across --allowed-contact-links and keep slot-wise switching inside each link.",
+    )
     args = parser.parse_args()
     args.device = resolve_device(args.device)
+    allowed_contact_links = resolve_contact_link_names(
+        args.allowed_contact_links.split(",") if args.allowed_contact_links else None
+    )
+    init_kwargs = {
+        "init_surface_axis": args.init_surface_axis,
+        "init_surface_side": args.init_surface_side,
+        "init_surface_band_fraction": args.init_surface_band_fraction,
+    }
 
     torch.manual_seed(args.seed)
     print(f"Using device: {args.device}")
     print_backend_status()
-    hand_model = ShadowHandModel.create(device=args.device, fingertips_only=args.fingertips_only)
+    hand_model = ShadowHandModel.create(
+        device=args.device,
+        fingertips_only=args.fingertips_only,
+        allowed_contact_links=allowed_contact_links,
+    )
+    contact_index_pools = build_contact_index_pools(
+        hand_model,
+        allowed_contact_links=allowed_contact_links,
+        num_contacts=args.num_contacts,
+        equalize=args.equalize_contacts_across_links,
+    )
     primitive = build_object(args)
     base_wrist_rotation = None
     if args.palm_down:
@@ -147,6 +236,8 @@ def main():
         batch_size=args.batch_size,
         num_contacts=args.num_contacts,
         base_wrist_rotation=base_wrist_rotation,
+        contact_index_pools=contact_index_pools,
+        **init_kwargs,
     )
     metric = ForceClosureQP(min_force=0.0, max_force=20.0)
     optimizer = MalaOptimizer(
@@ -165,7 +256,9 @@ def main():
             use_mala_star=args.mala_star,
             log_every=args.log_every,
             profile_every=args.profile_every,
-        )
+        ),
+        init_kwargs=init_kwargs,
+        contact_index_pools=contact_index_pools,
     )
 
     initial_losses = compute_grasp_energy(hand_model, primitive, initial_state, metric)
@@ -174,7 +267,11 @@ def main():
 
     output = {
         "primitive": object_metadata(args, primitive),
-        "hand": {"fingertips_only": bool(args.fingertips_only)},
+        "hand": {
+            "fingertips_only": bool(args.fingertips_only),
+            "allowed_contact_links": allowed_contact_links,
+            "equalize_contacts_across_links": bool(args.equalize_contacts_across_links),
+        },
         "initial_state": serialize_state(initial_state),
         "final_state": serialize_state(final_state),
         "initial_energy": initial_losses["E_total"].detach().cpu(),

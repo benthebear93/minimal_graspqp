@@ -35,6 +35,65 @@ def _random_contact_indices(
     return torch.randint(num_candidates, size=(batch_size, num_contacts), device=device)
 
 
+def _sample_contact_indices_from_pools(
+    contact_index_pools: list[torch.Tensor] | None,
+    *,
+    num_candidates: int,
+    batch_size: int,
+    num_contacts: int,
+    device: torch.device,
+) -> torch.Tensor:
+    if not contact_index_pools:
+        return _random_contact_indices(num_candidates, batch_size, num_contacts, device)
+    if len(contact_index_pools) != num_contacts:
+        raise ValueError("contact_index_pools length must match num_contacts.")
+    columns = []
+    for pool in contact_index_pools:
+        if pool.numel() == 0:
+            raise ValueError("contact_index_pools cannot contain empty pools.")
+        choice = pool.to(device=device)[torch.randint(pool.numel(), size=(batch_size,), device=device)]
+        columns.append(choice)
+    return torch.stack(columns, dim=1)
+
+
+def _sample_surface_band(
+    primitive: Sphere | Cylinder | Box | MeshObject,
+    batch_size: int,
+    dtype: torch.dtype,
+    device: torch.device,
+    axis: str | None,
+    side: str,
+    band_fraction: float,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    sampler = primitive.sample_init_surface if hasattr(primitive, "sample_init_surface") else primitive.sample_surface
+    if axis is None:
+        return sampler(batch_size=batch_size, dtype=dtype, device=device)
+
+    axis_to_index = {"x": 0, "y": 1, "z": 2}
+    axis_index = axis_to_index[axis]
+    oversample_count = max(batch_size * 12, batch_size)
+    surface_points, surface_normals = sampler(
+        batch_size=oversample_count,
+        dtype=dtype,
+        device=device,
+    )
+    coords = surface_points[:, axis_index]
+    coord_min = coords.min()
+    coord_max = coords.max()
+    threshold = coord_max - (coord_max - coord_min) * band_fraction
+    if side == "min":
+        threshold = coord_min + (coord_max - coord_min) * band_fraction
+        mask = coords <= threshold
+    else:
+        mask = coords >= threshold
+    filtered_points = surface_points[mask]
+    filtered_normals = surface_normals[mask]
+    if filtered_points.shape[0] < batch_size:
+        return surface_points[:batch_size], surface_normals[:batch_size]
+    indices = torch.randperm(filtered_points.shape[0], device=device)[:batch_size]
+    return filtered_points[indices], filtered_normals[indices]
+
+
 def _object_facing_rotation(
     forward: torch.Tensor, dtype: torch.dtype, device: torch.device
 ) -> torch.Tensor:
@@ -66,21 +125,26 @@ def initialize_grasps_for_primitive(
     distance_upper: float = 0.12,
     joint_jitter_strength: float = 0.05,
     max_wrist_angle: float = math.pi / 6.0,
-    num_contacts: int = 4,
+    num_contacts: int = 12,
     base_wrist_rotation: torch.Tensor | None = None,
+    init_surface_axis: str | None = None,
+    init_surface_side: str = "max",
+    init_surface_band_fraction: float = 0.25,
+    contact_index_pools: list[torch.Tensor] | None = None,
 ) -> GraspState:
     # only use convex hull mesh
     dtype = hand_model.dtype
     device = hand_model.device
 
-    if hasattr(primitive, "sample_init_surface"):
-        surface_points, surface_normals = primitive.sample_init_surface(
-            batch_size=batch_size, dtype=dtype, device=device
-        )
-    else:
-        surface_points, surface_normals = primitive.sample_surface(
-            batch_size=batch_size, dtype=dtype, device=device
-        )
+    surface_points, surface_normals = _sample_surface_band(
+        primitive,
+        batch_size=batch_size,
+        dtype=dtype,
+        device=device,
+        axis=init_surface_axis,
+        side=init_surface_side,
+        band_fraction=init_surface_band_fraction,
+    )
     radii = distance_lower + (distance_upper - distance_lower) * torch.rand(
         batch_size, 1, dtype=dtype, device=device
     )
@@ -115,8 +179,9 @@ def initialize_grasps_for_primitive(
     )
     joint_values = hand_model.clamp_to_limits(default_joint + jitter)
 
-    contact_indices = _random_contact_indices(
-        hand_model.metadata.num_contact_candidates,
+    contact_indices = _sample_contact_indices_from_pools(
+        contact_index_pools,
+        num_candidates=hand_model.metadata.num_contact_candidates,
         batch_size=batch_size,
         num_contacts=num_contacts,
         device=device,

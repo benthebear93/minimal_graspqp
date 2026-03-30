@@ -78,3 +78,13 @@ def test_shadow_hand_fingertips_only_filters_contact_candidates():
     model = ShadowHandModel.create(device="cpu", fingertips_only=True)
     assert set(model.metadata.contact_candidate_links).issubset(set(FINGERTIP_LINK_NAMES))
     assert model.metadata.num_contact_candidates < load_shadow_hand_metadata().num_contact_candidates
+
+
+def test_shadow_hand_allowed_contact_links_filters_to_requested_fingers():
+    model = ShadowHandModel.create(
+        device="cpu",
+        allowed_contact_links=["ff", "mf", "th"],
+    )
+    assert set(model.metadata.contact_candidate_links).issubset(
+        {"robot0_ffdistal", "robot0_mfdistal", "robot0_thdistal"}
+    )
