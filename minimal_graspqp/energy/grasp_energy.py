@@ -5,7 +5,23 @@ from typing import Any
 
 import torch
 
+from minimal_graspqp.hands.shadow_hand import DEFAULT_JOINT_ORDER
 from minimal_graspqp.metrics import ForceClosureQP
+
+FINGER_CURL_JOINTS = (
+    "robot0_FFJ2",
+    "robot0_FFJ1",
+    "robot0_FFJ0",
+    "robot0_MFJ2",
+    "robot0_MFJ1",
+    "robot0_MFJ0",
+    "robot0_RFJ2",
+    "robot0_RFJ1",
+    "robot0_RFJ0",
+    "robot0_LFJ2",
+    "robot0_LFJ1",
+    "robot0_LFJ0",
+)
 
 
 def compute_joint_limit_penalty(
@@ -16,6 +32,18 @@ def compute_joint_limit_penalty(
     return (lower - joint_values).clamp_min(0.0).sum(dim=-1) + (
         joint_values - upper
     ).clamp_min(0.0).sum(dim=-1)
+
+
+def compute_finger_close_energy(
+    joint_values: torch.Tensor,
+    close_target: float,
+) -> torch.Tensor:
+    if close_target <= 0.0:
+        return torch.zeros(joint_values.shape[0], dtype=joint_values.dtype, device=joint_values.device)
+    indices = [DEFAULT_JOINT_ORDER.index(name) for name in FINGER_CURL_JOINTS]
+    curl = joint_values[:, indices]
+    target = torch.as_tensor(close_target, dtype=joint_values.dtype, device=joint_values.device)
+    return (target - curl).clamp_min(0.0).pow(2).sum(dim=-1)
 
 
 def compute_self_penetration_energy(
@@ -79,6 +107,8 @@ def compute_grasp_energy(
     w_pen: float = 100.0,
     w_spen: float = 10.0,
     w_joint: float = 1.0,
+    w_close: float = 0.0,
+    close_target: float = 1.0,
     num_penetration_samples: int = 256,
     profile: bool = False,
 ) -> dict[str, torch.Tensor]:
@@ -159,6 +189,7 @@ def compute_grasp_energy(
         hand_model.metadata.joint_lower,
         hand_model.metadata.joint_upper,
     )
+    e_close = compute_finger_close_energy(grasp_state.joint_values, close_target)
     if profile:
         sync()
         t4 = time.perf_counter()
@@ -169,6 +200,7 @@ def compute_grasp_energy(
         + w_pen * e_pen
         + w_spen * e_spen
         + w_joint * e_joint
+        + w_close * e_close
     )
 
     return {
@@ -180,6 +212,7 @@ def compute_grasp_energy(
         "E_pen": e_pen,
         "E_spen": e_spen,
         "E_joint": e_joint,
+        "E_close": e_close,
         "E_total": total,
         "timings_ms": timings_ms,
     }

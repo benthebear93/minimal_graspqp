@@ -17,6 +17,10 @@ class ForceClosureQP:
         svd_gain: float = 0.1,
         values_gain: float = 2.0,
         warm_start: bool = True,
+        force_lower_offset: float = 1.0,
+        solver_eps: float = 5e-2,
+        solver_max_iter: int = 12,
+        solver_not_improved_lim: int = 3,
     ):
         self.friction = friction
         self.num_edges = num_edges
@@ -26,7 +30,12 @@ class ForceClosureQP:
         self.svd_gain = svd_gain
         self.values_gain = values_gain
         self.warm_start = warm_start
-        self.solver = BoundedLeastSquaresQPSolver()
+        self.force_lower_offset = force_lower_offset
+        self.solver = BoundedLeastSquaresQPSolver(
+            eps=solver_eps,
+            max_iter=solver_max_iter,
+            not_improved_lim=solver_not_improved_lim,
+        )
         self._last_solution: torch.Tensor | None = None
 
     def evaluate(
@@ -48,8 +57,8 @@ class ForceClosureQP:
             A,
             b,
             init=init,
-            min_bound=self.min_force + 1.0,
-            max_bound=self.max_force + 1.0,
+            min_bound=self.min_force + self.force_lower_offset,
+            max_bound=self.max_force + self.force_lower_offset,
             return_solution=True,
         )
         if self.warm_start:

@@ -30,6 +30,7 @@ The package currently covers:
    guides/installation
    guides/quickstart
    guides/optimization
+   guides/mjcf_shadow_hand_pipeline
 
 .. toctree::
    :maxdepth: 2

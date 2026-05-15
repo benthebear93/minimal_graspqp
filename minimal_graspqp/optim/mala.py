@@ -51,6 +51,13 @@ class MalaConfig:
     use_mala_star: bool = False
     log_every: int = 0
     profile_every: int = 0
+    w_fc: float = 1.0
+    w_dis: float = 100.0
+    w_pen: float = 100.0
+    w_spen: float = 10.0
+    w_joint: float = 1.0
+    w_close: float = 0.0
+    close_target: float = 1.0
 
 
 @dataclass
@@ -76,7 +83,19 @@ class MalaOptimizer:
         self._step = None
 
     def _energy(self, hand_model, primitive, state, metric):
-        return compute_grasp_energy(hand_model, primitive, state, metric)["E_total"]
+        return compute_grasp_energy(
+            hand_model,
+            primitive,
+            state,
+            metric,
+            w_fc=self.config.w_fc,
+            w_dis=self.config.w_dis,
+            w_pen=self.config.w_pen,
+            w_spen=self.config.w_spen,
+            w_joint=self.config.w_joint,
+            w_close=self.config.w_close,
+            close_target=self.config.close_target,
+        )["E_total"]
 
     @staticmethod
     def _sync_if_cuda(device: torch.device) -> None:
@@ -190,7 +209,20 @@ class MalaOptimizer:
             if should_profile:
                 self._sync_if_cuda(device)
                 t0 = time.perf_counter()
-            losses = compute_grasp_energy(hand_model, primitive, diff_state, metric, profile=should_profile)
+            losses = compute_grasp_energy(
+                hand_model,
+                primitive,
+                diff_state,
+                metric,
+                w_fc=self.config.w_fc,
+                w_dis=self.config.w_dis,
+                w_pen=self.config.w_pen,
+                w_spen=self.config.w_spen,
+                w_joint=self.config.w_joint,
+                w_close=self.config.w_close,
+                close_target=self.config.close_target,
+                profile=should_profile,
+            )
             if should_profile:
                 self._sync_if_cuda(device)
                 t_loss = time.perf_counter()
@@ -202,7 +234,20 @@ class MalaOptimizer:
             if should_profile:
                 self._sync_if_cuda(device)
                 t_propose = time.perf_counter()
-            proposal_losses = compute_grasp_energy(hand_model, primitive, proposal, metric, profile=should_profile)
+            proposal_losses = compute_grasp_energy(
+                hand_model,
+                primitive,
+                proposal,
+                metric,
+                w_fc=self.config.w_fc,
+                w_dis=self.config.w_dis,
+                w_pen=self.config.w_pen,
+                w_spen=self.config.w_spen,
+                w_joint=self.config.w_joint,
+                w_close=self.config.w_close,
+                close_target=self.config.close_target,
+                profile=should_profile,
+            )
             proposal_energy = proposal_losses["E_total"].detach()
             if should_profile:
                 self._sync_if_cuda(device)

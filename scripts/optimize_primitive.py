@@ -8,7 +8,8 @@ from pathlib import Path
 import torch
 
 from minimal_graspqp.energy import compute_grasp_energy
-from minimal_graspqp.hands import ShadowHandModel
+from minimal_graspqp.hands import MJCFShadowHandModel, ShadowHandModel
+from minimal_graspqp.hands.mjcf_shadow_hand import LOCAL_MUJOCO_HAND_XML
 from minimal_graspqp.hands import shadow_hand as shadow_hand_module
 from minimal_graspqp.hands.shadow_hand import resolve_contact_link_names
 from minimal_graspqp.init import initialize_grasps_for_primitive
@@ -157,6 +158,9 @@ def main():
     parser.add_argument("--half-y", type=float, default=0.04)
     parser.add_argument("--half-z", type=float, default=0.04)
     parser.add_argument("--device", default="auto", help="Device to use: auto, cpu, or cuda. Default auto prefers CUDA when available.")
+    parser.add_argument("--hand-model", choices=["urdf", "mjcf"], default="urdf")
+    parser.add_argument("--hand-asset-dir", default=None, help="Shadow Hand asset directory. Default uses assets/shadow_hand.")
+    parser.add_argument("--mjcf-hand-xml", default=None, help="MJCF hand XML for --hand-model mjcf.")
     parser.add_argument("--mala-star", action="store_true")
     parser.add_argument("--step-size", type=float, default=5e-3)
     parser.add_argument("--noise-scale", type=float, default=1e-3)
@@ -168,6 +172,17 @@ def main():
     parser.add_argument("--stepsize-period", type=int, default=50)
     parser.add_argument("--annealing-period", type=int, default=30)
     parser.add_argument("--mu", type=float, default=0.98)
+    parser.add_argument("--w-fc", type=float, default=1.0, help="Force-closure energy weight.")
+    parser.add_argument("--w-dis", type=float, default=100.0, help="Contact distance energy weight.")
+    parser.add_argument("--w-pen", type=float, default=100.0, help="Hand-object penetration energy weight.")
+    parser.add_argument("--w-spen", type=float, default=10.0, help="Self-penetration energy weight.")
+    parser.add_argument("--w-joint", type=float, default=1.0, help="Joint limit penalty weight.")
+    parser.add_argument("--w-close", type=float, default=0.0, help="Finger curl prior weight. Use >0 to discourage open-finger grasps.")
+    parser.add_argument("--close-target", type=float, default=1.0, help="Target flexion angle in radians for finger curl joints when --w-close > 0.")
+    parser.add_argument("--fc-force-lower-offset", type=float, default=1.0, help="Extra lower/upper bound offset for force-closure QP variables. Use 0.0 to avoid forcing every cone edge active.")
+    parser.add_argument("--fc-qpth-eps", type=float, default=5e-2, help="qpth solver tolerance for force-closure QP.")
+    parser.add_argument("--fc-qpth-max-iter", type=int, default=12, help="qpth max iterations for force-closure QP.")
+    parser.add_argument("--fc-qpth-not-improved-lim", type=int, default=3, help="qpth not-improved iteration limit for force-closure QP.")
     parser.add_argument("--log-every", type=int, default=0, help="Print optimization progress every N steps. Default 0 disables per-step progress logs.")
     parser.add_argument("--profile-every", type=int, default=0, help="Print coarse per-step timing every N steps. Default 0 disables timing logs.")
     parser.add_argument("--output", default="outputs/primitive_optimization.pt")
@@ -215,11 +230,20 @@ def main():
     torch.manual_seed(args.seed)
     print(f"Using device: {args.device}")
     print_backend_status()
-    hand_model = ShadowHandModel.create(
-        device=args.device,
-        fingertips_only=args.fingertips_only,
-        allowed_contact_links=allowed_contact_links,
-    )
+    if args.hand_model == "mjcf":
+        hand_model = MJCFShadowHandModel.create(
+            mjcf_path=args.mjcf_hand_xml or LOCAL_MUJOCO_HAND_XML,
+            device=args.device,
+            fingertips_only=args.fingertips_only,
+            allowed_contact_links=allowed_contact_links,
+        )
+    else:
+        hand_model = ShadowHandModel.create(
+            asset_dir=args.hand_asset_dir,
+            device=args.device,
+            fingertips_only=args.fingertips_only,
+            allowed_contact_links=allowed_contact_links,
+        )
     contact_index_pools = build_contact_index_pools(
         hand_model,
         allowed_contact_links=allowed_contact_links,
@@ -239,7 +263,14 @@ def main():
         contact_index_pools=contact_index_pools,
         **init_kwargs,
     )
-    metric = ForceClosureQP(min_force=0.0, max_force=20.0)
+    metric = ForceClosureQP(
+        min_force=0.0,
+        max_force=20.0,
+        force_lower_offset=args.fc_force_lower_offset,
+        solver_eps=args.fc_qpth_eps,
+        solver_max_iter=args.fc_qpth_max_iter,
+        solver_not_improved_lim=args.fc_qpth_not_improved_lim,
+    )
     optimizer = MalaOptimizer(
         MalaConfig(
             num_steps=args.num_steps,
@@ -256,21 +287,47 @@ def main():
             use_mala_star=args.mala_star,
             log_every=args.log_every,
             profile_every=args.profile_every,
+            w_fc=args.w_fc,
+            w_dis=args.w_dis,
+            w_pen=args.w_pen,
+            w_spen=args.w_spen,
+            w_joint=args.w_joint,
+            w_close=args.w_close,
+            close_target=args.close_target,
         ),
         init_kwargs=init_kwargs,
         contact_index_pools=contact_index_pools,
     )
 
-    initial_losses = compute_grasp_energy(hand_model, primitive, initial_state, metric)
+    energy_kwargs = {
+        "w_fc": args.w_fc,
+        "w_dis": args.w_dis,
+        "w_pen": args.w_pen,
+        "w_spen": args.w_spen,
+        "w_joint": args.w_joint,
+        "w_close": args.w_close,
+        "close_target": args.close_target,
+    }
+    initial_losses = compute_grasp_energy(hand_model, primitive, initial_state, metric, **energy_kwargs)
     final_state, history = optimizer.optimize(hand_model, primitive, initial_state, metric)
-    final_losses = compute_grasp_energy(hand_model, primitive, final_state, metric)
+    final_losses = compute_grasp_energy(hand_model, primitive, final_state, metric, **energy_kwargs)
 
     output = {
         "primitive": object_metadata(args, primitive),
         "hand": {
+            "model_type": args.hand_model,
+            "asset_dir": str(Path(args.hand_asset_dir).expanduser().resolve()) if args.hand_asset_dir else None,
+            "mjcf_path": str(Path(args.mjcf_hand_xml).expanduser().resolve()) if args.mjcf_hand_xml else None,
             "fingertips_only": bool(args.fingertips_only),
             "allowed_contact_links": allowed_contact_links,
             "equalize_contacts_across_links": bool(args.equalize_contacts_across_links),
+            "energy_weights": energy_kwargs,
+            "force_closure": {
+                "force_lower_offset": float(args.fc_force_lower_offset),
+                "qpth_eps": float(args.fc_qpth_eps),
+                "qpth_max_iter": int(args.fc_qpth_max_iter),
+                "qpth_not_improved_lim": int(args.fc_qpth_not_improved_lim),
+            },
         },
         "initial_state": serialize_state(initial_state),
         "final_state": serialize_state(final_state),

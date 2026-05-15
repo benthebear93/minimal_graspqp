@@ -19,6 +19,7 @@ dependencies = [
   "six>=1.16,<2.0",
   "pytorch-kinematics @ git+https://github.com/renezurbruegg/pytorch_kinematics",
   "qpth>=0.0.18,<0.0.19",
+  "mujoco>=3.8.1",
 ]
 
 [project.optional-dependencies]

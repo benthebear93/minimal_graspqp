@@ -40,6 +40,26 @@ Out of scope:
 - large-scale dataset pipelines
 - full paper-scale hyperparameter reproduction
 
+## MJCF Shadow Hand Pipeline
+
+For the current Shadow Hand grasping experiments, this repository uses the
+MuJoCo Shadow Hand asset in `assets/mujoco_shadow_hand_in_hand_rolling/`.
+This is intentionally different from the original/default Shadow Hand asset
+used by the upstream GraspQP code. The original asset is still useful context,
+but mixing it with a different MuJoCo validation model caused contact-point and
+finger-pose mismatches.
+
+The intended pipeline is therefore:
+
+1. Optimize the grasp with the MJCF hand model.
+2. Inspect the optimized pose in viser.
+3. Validate the same pose in MuJoCo with the same MJCF hand asset.
+
+This keeps the kinematics, visual geometry, collision geometry, and contact
+candidate locations consistent across optimization and simulation. See
+[`docs/guides/mjcf_shadow_hand_pipeline.rst`](docs/guides/mjcf_shadow_hand_pipeline.rst)
+for the full command sequence and rationale.
+
 ## Environment
 
 This repository is intended to be used with `uv`.
