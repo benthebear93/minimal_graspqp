@@ -1,6 +1,9 @@
 # minimal_graspqp
 
-![Render](images/render.png)
+<p align="center">
+  <img src="images/render.png" alt="Render" width="49%">
+  <img src="images/grasp_qp_mujoco_validation.gif" alt="MuJoCo validation" width="49%">
+</p>
 
 `minimal_graspqp` is a compact reproduction of the analytical GraspQP pipeline, focused on a small, testable Shadow Hand setup for primitive and mesh-object grasp optimization.
 
